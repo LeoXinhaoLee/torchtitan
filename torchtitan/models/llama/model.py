@@ -15,6 +15,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torchtitan.models.norms import build_norm
+from torchtitan.models.ttt_titan import TTTLinear, TTTMLP
 
 
 @dataclass
@@ -26,6 +27,7 @@ class ModelArgs:
     vocab_size: int = -1  # defined later by tokenizer
     multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
     ffn_dim_multiplier: Optional[float] = None
+    ffn_intermediate_dim: Optional[int] = None  # @xinhao: directly specify swiglu hidden dim
     norm_eps: float = 1e-5
     rope_theta: float = 10000
 
@@ -35,6 +37,14 @@ class ModelArgs:
     # `False`, each uses the total number of transformer blocks
     depth_init: bool = True
     norm_type: str = "rmsnorm"
+
+    tie_word_embeddings: bool = False  # @xinhao: add to match ttt-lm-jax
+
+    # @xinhao: add ttt config
+    seq_modeling_block: str = 'self_attention'
+    ttt_base_lr: float = 1.
+    mini_batch_size: int = 16
+    scan_checkpoint_group_size: int = 4
 
 
 def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0) -> torch.Tensor:
@@ -239,13 +249,19 @@ class FeedForward(nn.Module):
         hidden_dim: int,
         multiple_of: int,
         ffn_dim_multiplier: Optional[float],
+        ffn_intermediate_dim: Optional[int] = None,
     ):
         super().__init__()
-        hidden_dim = int(2 * hidden_dim / 3)
-        # custom dim factor multiplier
-        if ffn_dim_multiplier is not None:
-            hidden_dim = int(ffn_dim_multiplier * hidden_dim)
-        hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
+
+        if ffn_intermediate_dim is not None:
+            # @xinhao: directly specify swiglu hidden dim
+            hidden_dim = ffn_intermediate_dim
+        else:
+            hidden_dim = int(2 * hidden_dim / 3)
+            # custom dim factor multiplier
+            if ffn_dim_multiplier is not None:
+                hidden_dim = int(ffn_dim_multiplier * hidden_dim)
+            hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
         self.w1 = nn.Linear(dim, hidden_dim, bias=False)
         self.w2 = nn.Linear(hidden_dim, dim, bias=False)
@@ -284,12 +300,18 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.n_heads = model_args.n_heads
         self.dim = model_args.dim
-        self.attention = Attention(model_args)
+        if model_args.seq_modeling_block == 'self_attention':
+            self.attention = Attention(model_args)
+        elif model_args.seq_modeling_block == 'ttt_linear':
+            self.attention = TTTLinear(model_args)
+        elif model_args.seq_modeling_block == 'ttt_mlp':
+            self.attention = TTTMLP(model_args)
         self.feed_forward = FeedForward(
             dim=model_args.dim,
             hidden_dim=4 * model_args.dim,
             multiple_of=model_args.multiple_of,
             ffn_dim_multiplier=model_args.ffn_dim_multiplier,
+            ffn_intermediate_dim=model_args.ffn_intermediate_dim  # @xinhao
         )
         self.layer_id = layer_id
         self.num_layers = model_args.n_layers
@@ -378,6 +400,12 @@ class Transformer(nn.Module):
         )
 
         self.output = nn.Linear(model_args.dim, model_args.vocab_size, bias=False)
+
+        if model_args.tie_word_embeddings:
+            # @xinhao: follow nanoGPT to make tok_embed use the weights of lm_head
+            # TODO: which init to use for this shared weight?
+            self.tok_embeddings.weight = self.output.weight
+
         self.init_weights()
 
     def init_weights(self):
