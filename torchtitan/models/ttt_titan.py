@@ -686,14 +686,14 @@ class TTTBase(nn.Module):
 
         B, L = hidden_states.shape[:2]
 
-        if position_ids is None:
-            seqlen_offset = 0
-            position_ids = torch.arange(
-                seqlen_offset,
-                seqlen_offset + L,
-                dtype=torch.long,
-                device=hidden_states.device,
-            ).unsqueeze(0)
+        # if position_ids is None:
+        #     seqlen_offset = 0
+        #     position_ids = torch.arange(
+        #         seqlen_offset,
+        #         seqlen_offset + L,
+        #         dtype=torch.long,
+        #         device=hidden_states.device,
+        #     ).unsqueeze(0)
 
         XQ, XK, XV = self.get_qkv_projections(hidden_states)
 
@@ -702,12 +702,12 @@ class TTTBase(nn.Module):
         XK = XK.reshape(B, L, self.num_heads, self.head_dim).transpose(1, 2)
         XV = XV.reshape(B, L, self.num_heads, self.head_dim).transpose(1, 2)
 
-        cos, sin = self.rotary_emb(XV, position_ids % self.mini_batch_size)
+        # cos, sin = self.rotary_emb(XV, position_ids % self.mini_batch_size)
 
         # permute_qk and undo_permute_qk is just for aligning pytorch with jax pre-training
-        XQ, XK = permute_qk(XQ, XK)
-        XQ, XK = apply_rotary_pos_emb(XQ, XK, cos, sin)
-        XQ, XK = undo_permute_qk(XQ, XK)
+        # XQ, XK = permute_qk(XQ, XK)
+        # XQ, XK = apply_rotary_pos_emb(XQ, XK, cos, sin)
+        # XQ, XK = undo_permute_qk(XQ, XK)
 
         inputs = {
             "XQ": XQ,
@@ -718,6 +718,8 @@ class TTTBase(nn.Module):
         output_hidden_states, _ = self.ttt(
             self.get_ttt_inputs(inputs, self.mini_batch_size),
         )
+        # print('No TTT loop')
+        # output_hidden_states = (XQ + XK + XV).transpose(1, 2).reshape(B, L, -1)
         output_hidden_states = self.post_norm(output_hidden_states)
         output_hidden_states = self.wo(output_hidden_states)
 

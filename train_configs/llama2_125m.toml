@@ -15,10 +15,9 @@ enable_tensorboard = true
 save_tb_folder = "tb"
 
 [model]
-name = "llama2_ttt"
+name = "llama2"
 flavor = "125M"
 norm_type = "rmsnorm"  # layernorm / np_layernorm / rmsnorm / fused_rmsnorm
-seq_modeling_block = "ttt_linear"
 tokenizer_path = "./test/assets/test_tiktoken.model"
 
 [optimizer]

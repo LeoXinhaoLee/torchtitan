@@ -6,9 +6,11 @@ set -ex
 # e.g.
 # LOG_RANK=0,1 NGPU=4 ./run_llama_train.sh
 #NGPU=${NGPU:-"8"}
-NGPU=${NGPU:-"2"}
+NGPU=${NGPU:-"1"}
 LOG_RANK=${LOG_RANK:-0}
+#CONFIG_FILE=${CONFIG_FILE:-"./train_configs/debug_model.toml"}
 CONFIG_FILE=${CONFIG_FILE:-"./train_configs/llama2_125m_M1.toml"}
+#CONFIG_FILE=${CONFIG_FILE:-"./train_configs/llama2_125m.toml"}
 
 overrides=""
 if [ $# -ne 0 ]; then
@@ -19,7 +21,7 @@ fi
 CONDA_PATH=$(dirname "$(which python)")
 export PATH="$CONDA_PATH:$PATH"
 
-export CUDA_VISIBLE_DEVICES=1,2
+export CUDA_VISIBLE_DEVICES=0
 
 torchrun --nproc_per_node=${NGPU} \
          --rdzv_backend c10d \

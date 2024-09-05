@@ -15,7 +15,8 @@ models_config = {
 model_name_to_cls = {"llama2": Transformer, "llama3": Transformer, "llama2_ttt": Transformer}
 
 model_name_to_tokenizer = {
-    "llama2": "sentencepiece",
+    # "llama2": "sentencepiece",
+    "llama2": "tiktoken",      # @xinhao TODO: should switch to llama2 for reproducing results
     "llama3": "tiktoken",
-    "llama2_ttt": "sentencepiece",
+    "llama2_ttt": "tiktoken",  # @xinhao TODO: should switch to llama2 for reproducing results
 }
