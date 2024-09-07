@@ -686,14 +686,14 @@ class TTTBase(nn.Module):
 
         B, L = hidden_states.shape[:2]
 
-        # if position_ids is None:
-        #     seqlen_offset = 0
-        #     position_ids = torch.arange(
-        #         seqlen_offset,
-        #         seqlen_offset + L,
-        #         dtype=torch.long,
-        #         device=hidden_states.device,
-        #     ).unsqueeze(0)
+        if position_ids is None:
+            seqlen_offset = 0
+            position_ids = torch.arange(
+                seqlen_offset,
+                seqlen_offset + L,
+                dtype=torch.long,
+                device=hidden_states.device,
+            ).unsqueeze(0)
 
         XQ, XK, XV = self.get_qkv_projections(hidden_states)
 
@@ -702,12 +702,12 @@ class TTTBase(nn.Module):
         XK = XK.reshape(B, L, self.num_heads, self.head_dim).transpose(1, 2)
         XV = XV.reshape(B, L, self.num_heads, self.head_dim).transpose(1, 2)
 
-        # cos, sin = self.rotary_emb(XV, position_ids % self.mini_batch_size)
+        cos, sin = self.rotary_emb(XV, position_ids % self.mini_batch_size)
 
         # permute_qk and undo_permute_qk is just for aligning pytorch with jax pre-training
-        # XQ, XK = permute_qk(XQ, XK)
-        # XQ, XK = apply_rotary_pos_emb(XQ, XK, cos, sin)
-        # XQ, XK = undo_permute_qk(XQ, XK)
+        XQ, XK = permute_qk(XQ, XK)
+        XQ, XK = apply_rotary_pos_emb(XQ, XK, cos, sin)
+        XQ, XK = undo_permute_qk(XQ, XK)
 
         inputs = {
             "XQ": XQ,
@@ -833,6 +833,13 @@ class TTTLinear(TTTBase):
             if use_dual_form:
                 # [B,nh,K,K]
                 Attn1 = torch.tril(XQ_mini_batch @ X1.transpose(-2, -1))
+
+                # print('ttt norm weight: ', self.ttt_norm_weight.dtype)
+                # print('XQ: ', XQ_mini_batch.dtype)
+                # print('b1_init: ', b1_init.dtype)
+                # print('eta_mini_batch: ', eta_mini_batch.dtype)
+                # print('grad_l_wrt_Z1: ', grad_l_wrt_Z1.dtype)
+
                 # [B,nh,1,f] - [B,nh,K,K] @ [B,nh,K,f] -> [B,nh,K,f]
                 b1_bar = b1_init - torch.tril(eta_mini_batch) @ grad_l_wrt_Z1
                 # [B,nh,K,f] @ [B,nh,f,f] - ([B,nh,K,1] * [B,nh,K,K]) @ [B,nh,K,f] + [B,nh,K,f]

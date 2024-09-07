@@ -6,7 +6,6 @@
 
 import contextlib
 import os
-import pdb
 import time
 from datetime import timedelta
 from tqdm import tqdm
@@ -29,8 +28,6 @@ from torchtitan.parallelisms import (
     ParallelDims,
 )
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
-
-from torchtitan.datasets.language_modeling_hf import LMDataModule
 
 
 def get_train_context(enable_loss_parallel: bool, enable_compiled_autograd: bool):
@@ -92,41 +89,19 @@ def main(job_config: JobConfig):
     model_name = job_config.model.name
 
     # build tokenizer
-    # tokenizer_type = model_name_to_tokenizer[model_name]
-    # tokenizer = build_tokenizer(tokenizer_type, job_config.model.tokenizer_path)
+    tokenizer_type = model_name_to_tokenizer[model_name]
+    tokenizer = build_tokenizer(tokenizer_type, job_config.model.tokenizer_path)
 
     # build dataloader
-    # data_loader = build_hf_data_loader(
-    #     job_config.training.dataset,
-    #     job_config.training.dataset_path,
-    #     tokenizer,
-    #     job_config.training.batch_size,
-    #     job_config.training.seq_len,
-    #     dp_degree,
-    #     dp_rank,
-    # )
-
-    # @xinhao: use ttt-lm-jax, but use distributed data loader
-    data_module = LMDataModule(
-        dataset_name='the_pile',
-        dataset_config_name=None,
-        tokenizer_name='meta-llama/Llama-2-7b-hf',
-        cache_dir='/nlp/scr/yusun/data/xinhao/MTTT-LLM-PILE/data/pile_tokenized',
-        max_length=job_config.training.seq_len,
-        add_eos=True,
-        batch_size=job_config.training.batch_size,  # per-dev batch size
-        batch_size_eval=job_config.training.batch_size,
-        loader_workers=8,
-        shuffle=True,
-        fault_tolerant=True,
-        drop_last=True,
-        ddp=True,
+    data_loader = build_hf_data_loader(
+        job_config.training.dataset,
+        job_config.training.dataset_path,
+        tokenizer,
+        job_config.training.batch_size,
+        job_config.training.seq_len,
+        dp_degree,
+        dp_rank,
     )
-    data_module.prepare_data()
-    data_module.setup()
-    tokenizer = data_module.tokenizer
-    data_loader = data_module.train_dataloader()
-    ###
 
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
@@ -136,8 +111,7 @@ def main(job_config: JobConfig):
     # 2. vocab size from tokenizer
     # 3. max_seq_len base on inputs
     model_config.norm_type = job_config.model.norm_type
-    # model_config.vocab_size = tokenizer.n_words
-    model_config.vocab_size = len(tokenizer)
+    model_config.vocab_size = tokenizer.n_words
     model_config.max_seq_len = job_config.training.seq_len
 
     logger.info(f"Building {model_name} {job_config.model.flavor} with {model_config}")
@@ -162,22 +136,10 @@ def main(job_config: JobConfig):
     )
 
     # loss function to be shared by Pipeline Parallel and SPMD training
-    def loss_fn(pred, labels, loss_masks):
-        """
-        Inputs:
-            pred: [B,T,V]
-            labels: [B,T]
-            loss_mask: [B,T]
-        """
-        B, T = labels.shape
-        token_nll = torch.nn.functional.cross_entropy(
-            pred.flatten(0, 1),
-            labels.flatten(0, 1),
-            reduction='none'
-        ) * loss_masks.flatten(0, 1)  # CE([B*T,V], [B*T,]) * [B*T,] -> [B*T,]
-        valid_text_length = torch.clamp(torch.sum(loss_masks, dim=-1, keepdim=True), min=1e-10)  # [B,1]
-        effective_loss = (token_nll.reshape(B, T) / valid_text_length).sum(dim=-1).mean()  # ([B,T] / [B,]).sum(-1).mean(0)
-        return effective_loss
+    def loss_fn(pred, labels):
+        return torch.nn.functional.cross_entropy(
+            pred.flatten(0, 1), labels.flatten(0, 1)
+        )
 
     # apply parallelisms and initialization
     if parallel_dims.pp_enabled:
@@ -305,26 +267,13 @@ def main(job_config: JobConfig):
 
             # get batch
             data_load_start = time.perf_counter()
-
-            # batch = next(data_iterator)
-            try:
-                batch = next(data_iterator)
-            except StopIteration:
-                data_loader.sampler.counter = 0
-                data_loader.sampler.epoch += 1
-                data_iterator = iter(data_loader)
-                batch = next(data_iterator)
-
-            # input_ids, labels = batch
-            input_ids, labels, loss_masks = batch['input_tokens'], batch['target_tokens'], batch['loss_masks']
-
+            batch = next(data_iterator)
+            input_ids, labels = batch
             ntokens_since_last_log += labels.numel()
-
             data_loading_times.append(time.perf_counter() - data_load_start)
 
             input_ids = input_ids.cuda()
             labels = labels.cuda()
-            loss_masks = loss_masks.cuda()
             optimizers.zero_grad()
 
             if parallel_dims.pp_enabled:
@@ -350,7 +299,7 @@ def main(job_config: JobConfig):
                 # Non-PP forward / backward
                 with train_context():
                     pred = model(input_ids)
-                    loss = loss_fn(pred, labels, loss_masks)
+                    loss = loss_fn(pred, labels)
                     # pred.shape=(bs, seq_len, vocab_size)
                     # need to free to before bwd to avoid peaking memory
                     del pred
