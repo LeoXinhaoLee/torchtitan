@@ -593,3 +593,18 @@ class JobConfig:
         cmd_args, _ = aux_parser.parse_known_args(args_list)
 
         return args, cmd_args
+
+    def to_dict(self) -> dict:
+        """
+        Converts the instance's attributes into a nested dictionary.
+        """
+        config_dict = {}
+        for section_name in dir(self):
+            if section_name.startswith("_") or callable(getattr(self, section_name)):
+                continue
+            section_obj = getattr(self, section_name)
+            if hasattr(section_obj, "__dict__"):
+                config_dict[section_name] = {
+                    k: v for k, v in vars(section_obj).items()
+                }
+        return config_dict

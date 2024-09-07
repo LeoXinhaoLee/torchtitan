@@ -10,6 +10,7 @@ import pdb
 import time
 from datetime import timedelta
 from tqdm import tqdm
+from dataclasses import dataclass, asdict
 
 import torch
 from torch.distributed.elastic.multiprocessing.errors import record
@@ -112,7 +113,8 @@ def main(job_config: JobConfig):
         dataset_name='the_pile',
         dataset_config_name=None,
         tokenizer_name='meta-llama/Llama-2-7b-hf',
-        cache_dir='/nlp/scr/yusun/data/xinhao/MTTT-LLM-PILE/data/pile_tokenized',
+        # cache_dir='/nlp/scr/yusun/data/xinhao/MTTT-LLM-PILE/data/pile_tokenized',
+        cache_dir='/workspace/datasets/pile_tokenized',
         max_length=job_config.training.seq_len,
         add_eos=True,
         batch_size=job_config.training.batch_size,  # per-dev batch size
@@ -277,9 +279,9 @@ def main(job_config: JobConfig):
 
     checkpoint.reset()
 
-    multi_dir = osp.join(job_config.job.dump_folder)
-    multi = MultiLogger(multi_dir, job_config, model_config.to_dict())
-    metrics = []
+    multi_dir = os.path.join(job_config.job.dump_folder)
+    multi = MultiLogger(multi_dir, job_config.to_dict(), asdict(model_config))
+    metrics_list = []
 
     # train loop
     logger.info(
@@ -378,12 +380,13 @@ def main(job_config: JobConfig):
             float8_handler.precompute_float8_dynamic_scale_for_fsdp(model_parts)
 
             losses_since_last_log.append(loss)
-            pdb.set_trace()
-            metrics.append({
+            metrics_list.append({
                 "loss": loss.item(),
                 "gradient_norm": grads_norm.item(),
-                "learning_rate": learning_rate.item()
+                "learning_rate": optimizers.optimizers[0].param_groups[0]['lr']
             })
+            print('g norm: ', grads_norm.item())
+            print('lr: ', optimizers.optimizers[0].param_groups[0]['lr'])
 
             # log metrics
             if (
@@ -401,13 +404,13 @@ def main(job_config: JobConfig):
                     global_avg_loss, global_max_loss = avg_loss, max_loss
 
                 if torch.distributed.get_rank() == 0:
-                    multi.update_metrics(metrics)
+                    multi.update_metrics(metrics_list)
                     multi.save(
-                        milestone=step if step % job_config.metrics.save_milestone_freq == 0 else None,
+                        milestone=train_state.step,
                         ttt_stats=None
                     )
-                    del metrics
-                    metrics = []
+                    del metrics_list
+                    metrics_list = []
 
                 # update train state
                 train_state.log_steps.append(train_state.step)

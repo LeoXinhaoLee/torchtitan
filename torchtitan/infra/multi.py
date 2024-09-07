@@ -1,5 +1,8 @@
+import os
 import os.path as osp
 import json
+import pdb
+
 import numpy as np
 import torch
 import pytz
@@ -35,7 +38,9 @@ class MultiLogger:
         )
 
         self.local_logger.write("============= Training Config ===============\n")
-        self.local_logger.write(json.dumps(config_to_dict(self.config), indent=4) + "\n")
+        # if torch.distributed.get_rank() == 0:
+        #     pdb.set_trace()
+        self.local_logger.write(json.dumps(self.config, indent=4, default=str) + "\n")
 
         if self.model_config is not None:
             self.local_logger.write("============= Model Config ===============\n")
