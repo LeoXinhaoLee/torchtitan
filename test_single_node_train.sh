@@ -9,15 +9,15 @@ set -ex
 NGPU=${NGPU:-"2"}
 LOG_RANK=${LOG_RANK:-0}
 #CONFIG_FILE=${CONFIG_FILE:-"./train_configs/debug_model.toml"}
-#CONFIG_FILE=${CONFIG_FILE:-"./train_configs/llama2_125m.toml"}
-CONFIG_FILE=${CONFIG_FILE:-"./train_configs/llama2_125m_M1.toml"}
+CONFIG_FILE=${CONFIG_FILE:-"./train_configs/llama2_125m.toml"}
+#CONFIG_FILE=${CONFIG_FILE:-"./train_configs/llama2_125m_M1.toml"}
 
 overrides=""
 if [ $# -ne 0 ]; then
     overrides="$*"
 fi
 
-overrides="--job.dump_folder=./exp/clean_125M_M1_ckpt --metrics.enable_tensorboard --checkpoint.enable_checkpoint --checkpoint.interval=5"
+overrides="--job.dump_folder=./exp/clean_125M_TF_ckpt --metrics.enable_tensorboard --checkpoint.enable_checkpoint --checkpoint.interval=5"
 
 . /nlp/scr/yusun/miniconda3/etc/profile.d/conda.sh ; conda activate torchtitan
 #. /workspace/miniconda/etc/profile.d/conda.sh ; conda activate torchtitan
@@ -25,7 +25,7 @@ overrides="--job.dump_folder=./exp/clean_125M_M1_ckpt --metrics.enable_tensorboa
 CONDA_PATH=$(dirname "$(which python)")
 export PATH="$CONDA_PATH:$PATH"
 
-#export CUDA_VISIBLE_DEVICES=0,1,2
+#export CUDA_VISIBLE_DEVICES=0
 
 torchrun --nproc_per_node=${NGPU} \
          --rdzv_backend c10d \
@@ -33,4 +33,4 @@ torchrun --nproc_per_node=${NGPU} \
          --local-ranks-filter ${LOG_RANK} \
          --role rank \
          --tee 3 \
-         train.py --job.config_file ${CONFIG_FILE} $overrides
+         train_original.py --job.config_file ${CONFIG_FILE} $overrides

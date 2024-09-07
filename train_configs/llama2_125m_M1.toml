@@ -2,7 +2,7 @@
 
 [job]
 dump_folder = "./exp/clean_2"
-description = "Llama2 125M training"
+description = "Llama2 M1 125M training"
 
 [profiling]
 enable_profiling = false # true

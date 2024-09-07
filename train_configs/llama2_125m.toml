@@ -5,13 +5,13 @@ dump_folder = "./outputs"
 description = "Llama2 125M training"
 
 [profiling]
-enable_profiling = true
+enable_profiling = false # true
 save_traces_folder = "profile_trace"
 profile_freq = 100
 
 [metrics]
 log_freq = 10
-enable_tensorboard = true
+enable_tensorboard = false # true
 save_tb_folder = "tb"
 
 [model]
@@ -25,13 +25,14 @@ name = "AdamW"
 lr = 3e-3
 
 [training]
-batch_size = 64
+batch_size = 8
 seq_len = 2048
 warmup_steps = 480  # lr scheduler warm up, normally 20% of the train steps
 max_norm = 1.0  # grad norm clipping
 steps = 4800
 data_parallel_degree = -1
 tensor_parallel_degree = 1  # dp-only would be sufficient for 7B
+mixed_precision_param = "float32"  # @xinhao: avoid fsdp inner loop b16 and fp32 compute together
 compile = false
 #dataset = "c4"
 dataset = "c4_test"  # supported datasets: c4_test (2K), c4 (177M)
