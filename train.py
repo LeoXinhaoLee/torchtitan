@@ -113,8 +113,8 @@ def main(job_config: JobConfig):
         dataset_name='the_pile',
         dataset_config_name=None,
         tokenizer_name='meta-llama/Llama-2-7b-hf',
-        # cache_dir='/nlp/scr/yusun/data/xinhao/MTTT-LLM-PILE/data/pile_tokenized',
-        cache_dir='/workspace/datasets/pile_tokenized',
+        cache_dir='/nlp/scr/yusun/data/xinhao/MTTT-LLM-PILE/data/pile_tokenized',
+        # cache_dir='/workspace/datasets/pile_tokenized',
         max_length=job_config.training.seq_len,
         add_eos=True,
         batch_size=job_config.training.batch_size,  # per-dev batch size
@@ -281,7 +281,7 @@ def main(job_config: JobConfig):
 
     multi_dir = os.path.join(job_config.job.dump_folder)
     multi = MultiLogger(multi_dir, job_config.to_dict(), asdict(model_config))
-    metrics_list = []
+    multi_metrics_list = []
 
     # train loop
     logger.info(
@@ -380,19 +380,36 @@ def main(job_config: JobConfig):
             float8_handler.precompute_float8_dynamic_scale_for_fsdp(model_parts)
 
             losses_since_last_log.append(loss)
-            metrics_list.append({
+            multi_metrics_list.append({
                 "loss": loss.item(),
                 "gradient_norm": grads_norm.item(),
                 "learning_rate": optimizers.optimizers[0].param_groups[0]['lr']
             })
-            print('g norm: ', grads_norm.item())
-            print('lr: ', optimizers.optimizers[0].param_groups[0]['lr'])
 
             # log metrics
             if (
                 train_state.step == 1
                 or train_state.step % job_config.metrics.log_freq == 0
             ):
+                # @xinhao: multi logging
+                if parallel_dims.dp_enabled:
+                    for i in range(len(multi_metrics_list)):
+                        for key in multi_metrics_list[i].keys():
+                            multi_metrics_list[i][key] = utils.dist_mean(multi_metrics_list[i][key], dp_mesh)
+                multi.update_metrics(multi_metrics_list)
+                multi.save(
+                    milestone=None,
+                    ttt_stats=None
+                )
+                # @xinhao: assume `checkpoint.interval` is a multiple of `log_freq`
+                if train_state.step % job_config.checkpoint.interval == 0:
+                    multi.save(
+                        milestone=train_state.step,
+                        ttt_stats=None
+                    )
+                del multi_metrics_list
+                multi_metrics_list = []
+
                 losses = [loss.item() for loss in losses_since_last_log]
                 avg_loss, max_loss = sum(losses) / len(losses), max(losses)
                 if parallel_dims.dp_enabled:
@@ -402,15 +419,6 @@ def main(job_config: JobConfig):
                     )
                 else:
                     global_avg_loss, global_max_loss = avg_loss, max_loss
-
-                if torch.distributed.get_rank() == 0:
-                    multi.update_metrics(metrics_list)
-                    multi.save(
-                        milestone=train_state.step,
-                        ttt_stats=None
-                    )
-                    del metrics_list
-                    metrics_list = []
 
                 # update train state
                 train_state.log_steps.append(train_state.step)

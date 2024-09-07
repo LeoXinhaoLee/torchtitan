@@ -7,6 +7,7 @@
 import enum
 import functools
 import os
+import pdb
 import re
 import shutil
 import time
@@ -222,7 +223,7 @@ class CheckpointManager:
             {
                 "model": ModelWrapper(model_parts),
                 "optimizer": OptimizerWrapper(model_parts, optimizers),
-                "dataloader": dataloader,
+                # "dataloader": dataloader,
             }
         )
         if len(lr_schedulers) == 1:

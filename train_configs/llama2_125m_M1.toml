@@ -1,7 +1,7 @@
 # torchtitan Config.toml
 
 [job]
-dump_folder = "./outputs"
+dump_folder = "./exp/clean_2"
 description = "Llama2 125M training"
 
 [profiling]

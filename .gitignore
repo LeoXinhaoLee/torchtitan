@@ -21,3 +21,5 @@ _remote_module_non_scriptable.py
 # Xinhao dev
 exp_scripts/
 garbage/
+exp/
+plot*

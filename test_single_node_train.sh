@@ -6,7 +6,7 @@ set -ex
 # e.g.
 # LOG_RANK=0,1 NGPU=4 ./run_llama_train.sh
 #NGPU=${NGPU:-"8"}
-NGPU=${NGPU:-"1"}
+NGPU=${NGPU:-"2"}
 LOG_RANK=${LOG_RANK:-0}
 #CONFIG_FILE=${CONFIG_FILE:-"./train_configs/debug_model.toml"}
 #CONFIG_FILE=${CONFIG_FILE:-"./train_configs/llama2_125m.toml"}
@@ -17,8 +17,10 @@ if [ $# -ne 0 ]; then
     overrides="$*"
 fi
 
-#. /nlp/scr/yusun/miniconda3/etc/profile.d/conda.sh ; conda activate torchtitan
-. /workspace/miniconda/etc/profile.d/conda.sh ; conda activate torchtitan
+overrides="--job.dump_folder=./exp/clean_125M_M1_ckpt --metrics.enable_tensorboard --checkpoint.enable_checkpoint --checkpoint.interval=5"
+
+. /nlp/scr/yusun/miniconda3/etc/profile.d/conda.sh ; conda activate torchtitan
+#. /workspace/miniconda/etc/profile.d/conda.sh ; conda activate torchtitan
 
 CONDA_PATH=$(dirname "$(which python)")
 export PATH="$CONDA_PATH:$PATH"
