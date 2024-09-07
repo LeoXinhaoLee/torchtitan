@@ -31,6 +31,7 @@ from torchtitan.parallelisms import (
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 
 from torchtitan.datasets.language_modeling_hf import LMDataModule
+from torchtitan.infra.multi import MultiLogger
 
 
 def get_train_context(enable_loss_parallel: bool, enable_compiled_autograd: bool):
@@ -276,6 +277,10 @@ def main(job_config: JobConfig):
 
     checkpoint.reset()
 
+    multi_dir = osp.join(job_config.job.dump_folder)
+    multi = MultiLogger(multi_dir, job_config, model_config.to_dict())
+    metrics = []
+
     # train loop
     logger.info(
         f"Training starts at step {train_state.step + 1}, "
@@ -306,7 +311,6 @@ def main(job_config: JobConfig):
             # get batch
             data_load_start = time.perf_counter()
 
-            # batch = next(data_iterator)
             try:
                 batch = next(data_iterator)
             except StopIteration:
@@ -315,7 +319,6 @@ def main(job_config: JobConfig):
                 data_iterator = iter(data_loader)
                 batch = next(data_iterator)
 
-            # input_ids, labels = batch
             input_ids, labels, loss_masks = batch['input_tokens'], batch['target_tokens'], batch['loss_masks']
 
             ntokens_since_last_log += labels.numel()
@@ -358,7 +361,7 @@ def main(job_config: JobConfig):
 
             # clip gradients
             for m in model_parts:
-                torch.nn.utils.clip_grad_norm_(
+                grads_norm = torch.nn.utils.clip_grad_norm_(
                     m.parameters(), job_config.training.max_norm, foreach=True
                 )
 
@@ -375,6 +378,12 @@ def main(job_config: JobConfig):
             float8_handler.precompute_float8_dynamic_scale_for_fsdp(model_parts)
 
             losses_since_last_log.append(loss)
+            pdb.set_trace()
+            metrics.append({
+                "loss": loss.item(),
+                "gradient_norm": grads_norm.item(),
+                "learning_rate": learning_rate.item()
+            })
 
             # log metrics
             if (
@@ -390,6 +399,15 @@ def main(job_config: JobConfig):
                     )
                 else:
                     global_avg_loss, global_max_loss = avg_loss, max_loss
+
+                if torch.distributed.get_rank() == 0:
+                    multi.update_metrics(metrics)
+                    multi.save(
+                        milestone=step if step % job_config.metrics.save_milestone_freq == 0 else None,
+                        ttt_stats=None
+                    )
+                    del metrics
+                    metrics = []
 
                 # update train state
                 train_state.log_steps.append(train_state.step)
