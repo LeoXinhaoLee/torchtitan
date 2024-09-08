@@ -14,7 +14,7 @@ __all__ = ["Transformer"]
 llama2_configs = {
     "debugmodel": ModelArgs(dim=256, n_layers=8, n_heads=16),
     "125M": ModelArgs(dim=768, n_layers=12, n_heads=12, ffn_intermediate_dim=2048,
-                      tie_word_embeddings=True, norm_eps=1e-6),  # @xinhao: taken from ttt-lm-jax
+                      tie_word_embeddings=False, norm_eps=1e-6),  # @xinhao: taken from ttt-lm-jax
     "271M": ModelArgs(dim=1024, n_layers=16, n_heads=8),
     "1B": ModelArgs(dim=2048, n_layers=18, n_heads=16),
     "7B": ModelArgs(dim=4096, n_layers=32, n_heads=32),

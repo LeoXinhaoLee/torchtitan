@@ -17,7 +17,7 @@ if [ $# -ne 0 ]; then
     overrides="$*"
 fi
 
-overrides="--job.dump_folder=./exp/clean_125M_TF_ckpt --metrics.enable_tensorboard --checkpoint.enable_checkpoint --checkpoint.interval=5"
+overrides="--job.dump_folder=./exp/debug_ckpt --metrics.enable_tensorboard --checkpoint.enable_checkpoint --checkpoint.interval=5 --training.steps=50"
 
 . /nlp/scr/yusun/miniconda3/etc/profile.d/conda.sh ; conda activate torchtitan
 #. /workspace/miniconda/etc/profile.d/conda.sh ; conda activate torchtitan
