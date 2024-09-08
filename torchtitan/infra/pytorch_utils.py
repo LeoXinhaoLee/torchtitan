@@ -24,9 +24,3 @@ def master_print(msg, logger=None, end="\n"):
             logger.flush()
 
 
-def config_to_dict(config):
-  if isinstance(config, ConfigDict) or \
-     isinstance(config, dict):
-    return {k: config_to_dict(v) for k, v in config.items()}
-  return config
-

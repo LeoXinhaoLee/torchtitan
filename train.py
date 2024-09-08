@@ -242,6 +242,8 @@ def main(job_config: JobConfig):
         return
 
     checkpoint_loaded = checkpoint.load()
+    # @xinhao: hotfix that solves the bug that the second resume still starts from the first resume step count
+    checkpoint.states["train_state"] = train_state
 
     if parallel_dims.pp_enabled and not checkpoint_loaded:
         # TODO: fix this by allowing each rank to set their own seed
@@ -279,13 +281,15 @@ def main(job_config: JobConfig):
 
     checkpoint.reset()
 
-    multi_dir = os.path.join(job_config.job.dump_folder)
+    multi_dir = job_config.job.dump_folder
     multi = MultiLogger(multi_dir, job_config.to_dict(), asdict(model_config))
+    multi.load(multi_dir)
     multi_metrics_list = []
 
     # train loop
     logger.info(
-        f"Training starts at step {train_state.step + 1}, "
+        # @xinhao: original: `train_state.step + 1`, here modified to align with tqdm: how many steps that have been trained
+        f"Training starts at step {train_state.step}, "
         f"with local batch size {job_config.training.batch_size}, "
         f"global batch size {job_config.training.batch_size * dp_degree}, "
         f"sequence length {job_config.training.seq_len}, "

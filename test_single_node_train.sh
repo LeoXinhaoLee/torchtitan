@@ -17,7 +17,7 @@ if [ $# -ne 0 ]; then
     overrides="$*"
 fi
 
-overrides="--job.dump_folder=./exp/debug_ckpt --metrics.enable_tensorboard --checkpoint.enable_checkpoint --checkpoint.interval=5 --training.steps=50"
+overrides="--job.dump_folder=./exp/debug_ckpt --metrics.enable_tensorboard --metrics.log_freq=5 --checkpoint.enable_checkpoint --checkpoint.interval=10 --training.steps=50"
 
 . /nlp/scr/yusun/miniconda3/etc/profile.d/conda.sh ; conda activate torchtitan
 #. /workspace/miniconda/etc/profile.d/conda.sh ; conda activate torchtitan
@@ -33,4 +33,4 @@ torchrun --nproc_per_node=${NGPU} \
          --local-ranks-filter ${LOG_RANK} \
          --role rank \
          --tee 3 \
-         train_original.py --job.config_file ${CONFIG_FILE} $overrides
+         train.py --job.config_file ${CONFIG_FILE} $overrides
