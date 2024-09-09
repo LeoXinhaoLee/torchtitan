@@ -9,3 +9,5 @@ tabulate
 wandb
 matplotlib
 ml_collections
+transformers
+nvitop
