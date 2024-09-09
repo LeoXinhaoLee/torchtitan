@@ -113,8 +113,8 @@ def main(job_config: JobConfig):
         dataset_name='the_pile',
         dataset_config_name=None,
         tokenizer_name='meta-llama/Llama-2-7b-hf',
-        cache_dir='/nlp/scr/yusun/data/xinhao/MTTT-LLM-PILE/data/pile_tokenized',
-        # cache_dir='/workspace/datasets/pile_tokenized',
+        # cache_dir='/nlp/scr/yusun/data/xinhao/MTTT-LLM-PILE/data/pile_tokenized',
+        cache_dir='/workspace/datasets/pile_tokenized',
         max_length=job_config.training.seq_len,
         add_eos=True,
         batch_size=job_config.training.batch_size,  # per-dev batch size

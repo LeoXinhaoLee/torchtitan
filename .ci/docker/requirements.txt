@@ -6,3 +6,6 @@ sentencepiece
 tiktoken
 blobfile
 tabulate
+wandb
+matplotlib
+ml_collections
