@@ -332,7 +332,8 @@ class TransformerBlock(nn.Module):
             hidden_dim=4 * model_args.dim,
             multiple_of=model_args.multiple_of,
             ffn_dim_multiplier=model_args.ffn_dim_multiplier,
-            ffn_intermediate_dim=model_args.ffn_intermediate_dim  # @xinhao
+            ffn_intermediate_dim=model_args.ffn_intermediate_dim,  # @xinhao
+            model_args=model_args
         )
         self.layer_id = layer_id
         self.num_layers = model_args.n_layers

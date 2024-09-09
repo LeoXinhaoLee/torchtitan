@@ -18,7 +18,6 @@ from transformers.modeling_outputs import (
 from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import ModelOutput, logging
 
-from torchtitan.models.llama.model import ModelArgs
 from torchtitan.models.custom_backward import TTT
 
 logger = logging.get_logger(__name__)
@@ -222,7 +221,7 @@ class TTTCache:
 
 
 class TTTBase(nn.Module):
-    def __init__(self, config: ModelArgs):
+    def __init__(self, config):
         super().__init__()
         self.config = config
         self.width = config.dim
