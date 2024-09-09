@@ -18,6 +18,7 @@ from transformers.modeling_outputs import (
 from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import ModelOutput, logging
 
+from custom_backward import TTT
 
 logger = logging.get_logger(__name__)
 
@@ -759,7 +760,7 @@ class TTTLinearCustomBP(TTTBase):
         )
 
         def compute_mini_batch(params_dict, inputs):
-            W1_last, b1_last, XQW_mini_batch = ComputeTTTLinearMiniBatch.apply(self.ttt_norm_weight, self.ttt_norm_bias,
+            W1_last, b1_last, XQW_mini_batch = TTT.apply(self.ttt_norm_weight, self.ttt_norm_bias,
                                                                                params_dict["W1_states"],
                                                                                params_dict["b1_states"],
                                                                                inputs["XQ"], inputs["XV"], inputs["XK"],
