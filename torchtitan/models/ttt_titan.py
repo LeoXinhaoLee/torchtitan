@@ -19,6 +19,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import ModelOutput, logging
 
 from torchtitan.models.custom_backward import TTT
+from torchtitan.models.custom_backward_with_triton_forward import TritonTTT
 
 logger = logging.get_logger(__name__)
 
