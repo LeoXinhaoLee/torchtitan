@@ -19,6 +19,7 @@ name = "llama2"
 flavor = "125M"
 norm_type = "rmsnorm"  # layernorm / np_layernorm / rmsnorm / fused_rmsnorm
 seq_modeling_block =  "self_attention" # "ttt_linear"
+fix_normal_initializer_range = true  # @xinhao: same as jax codebase
 tokenizer_path = "./test/assets/test_tiktoken.model"
 
 [optimizer]
