@@ -186,6 +186,11 @@ class JobConfig:
             default=1e-5,
             help="Eps of layer normalization",
         )
+        self.parser.add_argument(
+            "--model.fix_normal_initializer_range",
+            action="store_true",
+            help="Fix initializer range for all params as in TTT-LM-JAX",
+        )
 
         # optimizer configs
         self.parser.add_argument(

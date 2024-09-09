@@ -18,6 +18,7 @@ from transformers.modeling_outputs import (
 from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import ModelOutput, logging
 
+from torchtitan.models.llama.model import ModelArgs
 from torchtitan.models.custom_backward import TTT
 
 logger = logging.get_logger(__name__)
@@ -221,7 +222,7 @@ class TTTCache:
 
 
 class TTTBase(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: ModelArgs):
         super().__init__()
         self.config = config
         self.width = config.dim
@@ -245,9 +246,14 @@ class TTTBase(nn.Module):
         self.post_norm = nn.LayerNorm(self.width, eps=1e-6)
     
     def init_weights(self, init_std: float):
-        for linear in (self.wq, self.wk, self.wv):
-            nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
-        nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
+        if self.config.fix_normal_initializer_range:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.normal_(linear.weight, mean=0.0, std=self.config.initializer_range)
+            nn.init.normal_(self.wo.weight, mean=0.0, std=self.config.initializer_range)
+        else:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
+            nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
 
     def _init_qkvo_proj(self):
         self.wq = nn.Linear(self.width, self.num_heads * self.head_dim, bias=False)

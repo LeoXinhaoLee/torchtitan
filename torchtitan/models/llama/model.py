@@ -46,6 +46,10 @@ class ModelArgs:
     mini_batch_size: int = 16
     scan_checkpoint_group_size: int = 4
 
+    # @xinhao: match ttt-lm-jax initializer
+    initializer_range: float = 0.02
+    fix_normal_initializer_range: bool = False
+
 
 def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0) -> torch.Tensor:
     """
@@ -176,10 +180,17 @@ class Attention(nn.Module):
             model_args.n_heads * self.head_dim, model_args.dim, bias=False
         )
 
+        self.model_args = model_args
+
     def init_weights(self, init_std: float):
-        for linear in (self.wq, self.wk, self.wv):
-            nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
-        nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
+        if self.model_args.fix_normal_initializer_range:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.normal_(linear.weight, mean=0.0, std=self.model_args.initializer_range)
+            nn.init.normal_(self.wo.weight, mean=0.0, std=self.model_args.initializer_range)
+        else:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
+            nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
 
     def forward(
         self,
@@ -250,6 +261,7 @@ class FeedForward(nn.Module):
         multiple_of: int,
         ffn_dim_multiplier: Optional[float],
         ffn_intermediate_dim: Optional[int] = None,
+        model_args: ModelArgs = None
     ):
         super().__init__()
 
@@ -267,13 +279,20 @@ class FeedForward(nn.Module):
         self.w2 = nn.Linear(hidden_dim, dim, bias=False)
         self.w3 = nn.Linear(dim, hidden_dim, bias=False)
 
+        self.model_args = model_args
+
     def forward(self, x):
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
     def init_weights(self, init_std: float):
-        nn.init.trunc_normal_(self.w1.weight, mean=0.0, std=0.02)
-        for linear in (self.w2, self.w3):
-            nn.init.trunc_normal_(linear.weight, mean=0.0, std=init_std)
+        if self.model_args.fix_normal_initializer_range:
+            nn.init.normal_(self.w1.weight, mean=0.0, std=self.model_args.initializer_range)
+            for linear in (self.w2, self.w3):
+                nn.init.normal_(linear.weight, mean=0.0, std=self.model_args.initializer_range)
+        else:
+            nn.init.trunc_normal_(self.w1.weight, mean=0.0, std=0.02)
+            for linear in (self.w2, self.w3):
+                nn.init.trunc_normal_(linear.weight, mean=0.0, std=init_std)
 
 
 class TransformerBlock(nn.Module):
@@ -325,10 +344,13 @@ class TransformerBlock(nn.Module):
             model_args.norm_type, dim=model_args.dim, eps=model_args.norm_eps
         )
 
-        if model_args.depth_init:
-            self.weight_init_std = 0.02 / (2 * (self.layer_id + 1)) ** 0.5
+        if model_args.fix_normal_initializer_range:
+            self.weight_init_std = model_args.initializer_range
         else:
-            self.weight_init_std = 0.02 / (2 * self.num_layers) ** 0.5
+            if model_args.depth_init:
+                self.weight_init_std = 0.02 / (2 * (self.layer_id + 1)) ** 0.5
+            else:
+                self.weight_init_std = 0.02 / (2 * self.num_layers) ** 0.5
 
     def forward(
         self,
@@ -425,7 +447,10 @@ class Transformer(nn.Module):
         with torch.device(self.freqs_cis.device):
             self.freqs_cis = self._precompute_freqs_cis()
         if self.tok_embeddings is not None:
-            nn.init.normal_(self.tok_embeddings.weight)
+            if self.model_args.fix_normal_initializer_range:
+                nn.init.normal_(self.tok_embeddings.weight, mean=0., std=self.model_args.initializer_range)
+            else:
+                nn.init.normal_(self.tok_embeddings.weight)
         for layer in self.layers.values():
             if layer is not None:
                 layer.init_weights()
@@ -434,13 +459,20 @@ class Transformer(nn.Module):
         final_out_std = self.model_args.dim**-0.5
         cutoff_factor = 3
         if self.output is not None:
-            nn.init.trunc_normal_(
-                self.output.weight,
-                mean=0.0,
-                std=final_out_std,
-                a=-cutoff_factor * final_out_std,
-                b=cutoff_factor * final_out_std,
-            )
+            if self.model_args.fix_normal_initializer_range:
+                nn.init.normal_(
+                    self.output.weight,
+                    mean=0.0,
+                    std=self.model_args.initializer_range,
+                )
+            else:
+                nn.init.trunc_normal_(
+                    self.output.weight,
+                    mean=0.0,
+                    std=final_out_std,
+                    a=-cutoff_factor * final_out_std,
+                    b=cutoff_factor * final_out_std,
+                )
 
     def _precompute_freqs_cis(self) -> torch.Tensor:
         return precompute_freqs_cis(
