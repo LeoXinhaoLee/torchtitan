@@ -474,6 +474,69 @@ class TTTLinearCustomBP(TTTBase):
         # [B, L, C]
         XQW_batch = XQW_batch.reshape(B, L, self.width)
         return XQW_batch, batch_params_dict
+    
+class TTTLinearCustomBP(TTTBase):
+    def __init__(self, config):
+        super().__init__(config)
+        # TTT model initialization for TTT-Linear
+        self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
+        self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
+
+    def ttt(self, inputs, use_dual_form=True):
+        mini_batch_size = self.mini_batch_size
+
+        # [B, num_heads, num_mini_batch, mini_batch_size, head_dim]
+        B = inputs["XV"].shape[0]
+        num_mini_batch = inputs["XV"].shape[2]
+        L = inputs["XV"].shape[2] * inputs["XV"].shape[3]
+        device = inputs["XV"].device
+        dtype = inputs["XV"].dtype
+
+        init_params_dict = {
+            "W1_states": torch.tile(self.W1.unsqueeze(0), dims=(B, 1, 1, 1)),
+            "b1_states": torch.tile(self.b1.unsqueeze(0), dims=(B, 1, 1, 1)),
+        }
+
+        # [B,num_heads, num_mini_batch, mini_batch_size, f] -> [num_mini_batch, B, num_heads, mini_batch_size, f]
+        inputs = tree_map(lambda x: x.permute(2, 0, 1, 3, 4), inputs)
+
+        # allocate output tensor
+        XQW_batch = torch.empty(
+            (num_mini_batch, B, self.num_heads, mini_batch_size, self.head_dim),
+            device=device,
+            dtype=dtype,
+        )
+
+        def compute_mini_batch(params_dict, inputs):
+            W1_last, b1_last, XQW_mini_batch = TritonTTT.apply(
+                self.ttt_norm_weight, 
+                self.ttt_norm_bias,
+                params_dict["W1_states"],
+                params_dict["b1_states"],
+                inputs["XQ"], inputs["XV"], inputs["XK"],
+                inputs["eta"], self.num_heads,
+                self.head_dim)
+
+            last_param_dict = {
+                "W1_states": W1_last,
+                "b1_states": b1_last,
+            }
+            return last_param_dict, XQW_mini_batch
+
+        # XQW_batch: [num_mini_batch, B, num_heads, mini_batch_size, head_dim]
+        batch_params_dict, XQW_batch = scan(
+            compute_mini_batch,
+            init_params_dict,
+            inputs,
+            XQW_batch,
+            self.config.scan_checkpoint_group_size if self.training else 0,
+        )
+
+        # [num_mini_batch, B, num_heads, mini_batch_size, head_dim] -> [B, num_mini_batch, mini_batch_size, num_heads, head_dim]
+        XQW_batch = XQW_batch.permute(1, 0, 3, 2, 4)
+        # [B, L, C]
+        XQW_batch = XQW_batch.reshape(B, L, self.width)
+        return XQW_batch, batch_params_dict
 
 
 class TTTLinear(TTTBase):
