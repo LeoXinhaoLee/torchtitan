@@ -30,11 +30,6 @@ llama2_configs = {
     ),
 }
 
-llama2_ttt_configs = {
-    "125M": ModelArgs(dim=768, n_layers=12, n_heads=12, ffn_intermediate_dim=2048,
-                      seq_modeling_block='ttt_linear', tie_word_embeddings=False, norm_eps=1e-6),
-}
-
 llama3_configs = {
     "debugmodel": ModelArgs(dim=256, n_layers=8, n_heads=16, rope_theta=500000),
     "8B": ModelArgs(

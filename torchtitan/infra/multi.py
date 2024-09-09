@@ -73,6 +73,6 @@ class MultiLogger:
     def update_metrics(self, metrics):
         if self.enable:
             for metric in metrics:
-                self.all_stat_dict["train/loss"].append(metric["loss"])
+                self.all_stat_dict["train/loss"].append(metric["train/loss"])
                 self.all_stat_dict["learning_rate"].append(metric["learning_rate"])
                 self.all_stat_dict["gradient_norm"].append(metric["gradient_norm"])

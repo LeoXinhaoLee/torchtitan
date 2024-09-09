@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import functools
+import math
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -79,14 +80,43 @@ def linear_warmup_linear_decay(
     return curr_adjustment
 
 
+# @xinhao
+def linear_warmup_cosine_decay(
+    warmup_steps: int, decay_steps: int, lr_peak: float, lr_end: float, current_step: int
+) -> float:
+    """Computes linear warmup followed by cosine decay.
+    Per LambdaLR requirement, this is accomplished by returning
+    a multiplicative factor to adjust the learning rate to
+    create the desired schedule.
+    """
+    if current_step < warmup_steps:
+        # linear warmup
+        # 0-indexed step, hence + 1 adjustments
+        current_step += 1
+        curr_adjustment = float(current_step / (warmup_steps + 1))
+
+    else:
+        # cosine decay
+        step_in_decay = current_step - warmup_steps
+        cosine_decay = 0.5 * (1 + math.cos(math.pi * step_in_decay / decay_steps))
+        adjusted_cosine_decay = (lr_end + (lr_peak - lr_end) * cosine_decay) / lr_peak
+        curr_adjustment = adjusted_cosine_decay
+
+    return curr_adjustment
+
+
 def build_lr_schedulers(optimizers, job_config: JobConfig):
     def _build_lr_scheduler(optimizer):
         """Build a linear warmup and linear decay scheduler"""
         warmup_steps = int(job_config.training.warmup_steps)
         decay_steps = float(max(1, job_config.training.steps - warmup_steps))
+        # lr_lambda = functools.partial(
+        #     linear_warmup_linear_decay, warmup_steps, decay_steps
+        # )
         lr_lambda = functools.partial(
-            linear_warmup_linear_decay, warmup_steps, decay_steps
-        )
+            linear_warmup_cosine_decay,
+            warmup_steps, decay_steps, job_config.optimizer.lr, job_config.optimizer.lr_end,
+        )  # @xinhao
         warmup_scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
         return warmup_scheduler
 

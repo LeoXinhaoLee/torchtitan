@@ -2,7 +2,7 @@
 
 [job]
 dump_folder = "./exp/clean"
-description = "Llama2 M1 125M training"
+description = "Llama2 125M Reproduce JAX"
 
 [profiling]
 enable_profiling = false
@@ -15,10 +15,10 @@ enable_tensorboard = false
 save_tb_folder = "tb"
 
 [model]
-name = "llama2_ttt"
+name = "llama2"
 flavor = "125M"
 norm_type = "rmsnorm"  # layernorm / np_layernorm / rmsnorm / fused_rmsnorm
-seq_modeling_block = "ttt_linear"
+seq_modeling_block =  "self_attention" # "ttt_linear"
 tokenizer_path = "./test/assets/test_tiktoken.model"
 
 [optimizer]
@@ -35,7 +35,6 @@ data_parallel_degree = -1
 tensor_parallel_degree = 1  # dp-only would be sufficient for 7B
 mixed_precision_param = "float32"  # @xinhao: avoid fsdp inner loop b16 and fp32 compute together
 compile = false
-#dataset = "c4"
 dataset = "c4_test"  # supported datasets: c4_test (2K), c4 (177M)
 
 [experimental]

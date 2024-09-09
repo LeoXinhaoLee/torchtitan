@@ -142,6 +142,9 @@ def main(job_config: JobConfig):
     # model_config.vocab_size = tokenizer.n_words
     model_config.vocab_size = len(tokenizer)
     model_config.max_seq_len = job_config.training.seq_len
+    # @xinhao adds below
+    model_config.seq_modeling_block = job_config.model.seq_modeling_block
+    model_config.norm_eps = job_config.model.norm_eps
 
     logger.info(f"Building {model_name} {job_config.model.flavor} with {model_config}")
     with torch.device("meta"):
@@ -385,7 +388,7 @@ def main(job_config: JobConfig):
 
             losses_since_last_log.append(loss)
             multi_metrics_list.append({
-                "loss": loss.item(),
+                "train/loss": loss.item(),
                 "gradient_norm": grads_norm.item(),
                 "learning_rate": optimizers.optimizers[0].param_groups[0]['lr']
             })

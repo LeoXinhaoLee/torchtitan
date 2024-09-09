@@ -173,6 +173,19 @@ class JobConfig:
             default="./torchtitan/datasets/tokenizer/tokenizer.model",
             help="Tokenizer path",
         )
+        # @xinhao
+        self.parser.add_argument(
+            "--model.seq_modeling_block",
+            type=str,
+            default="self_attention",
+            help="Type of sequence modeling block to use [self_attention, ttt_linear, ttt_linear_custom_bp, ttt_mlp]",
+        )
+        self.parser.add_argument(
+            "--model.norm_eps",
+            type=float,
+            default=1e-5,
+            help="Eps of layer normalization",
+        )
 
         # optimizer configs
         self.parser.add_argument(
@@ -186,6 +199,10 @@ class JobConfig:
             default=False,
             action="store_true",
             help="Whether the fused implementation(CUDA only) is used.",
+        )
+        # @xinhao
+        self.parser.add_argument(
+            "--optimizer.lr_end", type=float, default=0., help="End learning rate to use"
         )
 
         # training configs
@@ -428,6 +445,14 @@ class JobConfig:
                 0 is the default value.
             """,
         )
+        # # @xinhao
+        # self.parser.add_argument(
+        #     "--checkpoint.resume",
+        #     action='store_true',
+        #     help="""
+        #         If resume from a model ckpt.
+        #     """,
+        # )
 
         # activation checkpointing configs
         self.parser.add_argument(

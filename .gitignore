@@ -23,3 +23,5 @@ exp_scripts/
 garbage/
 exp/
 plot*
+*.sh
+*.slurm
