@@ -476,7 +476,7 @@ class TTTLinearCustomBP(TTTBase):
         XQW_batch = XQW_batch.reshape(B, L, self.width)
         return XQW_batch, batch_params_dict
     
-class TTTLinearCustomBP(TTTBase):
+class TTTLinearTriton(TTTBase):
     def __init__(self, config):
         super().__init__(config)
         # TTT model initialization for TTT-Linear
