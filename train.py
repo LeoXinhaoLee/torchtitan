@@ -255,7 +255,9 @@ def main(job_config: JobConfig):
         logger.info("Created seed checkpoint")
         return
 
-    checkpoint_loaded = checkpoint.load()
+    checkpoint_loaded = False
+    if job_config.checkpoint.resume:
+        checkpoint_loaded = checkpoint.load()
     # @xinhao: hotfix that solves the bug that the second resume still starts from the first resume step count
     checkpoint.states["train_state"] = train_state
 
@@ -297,7 +299,8 @@ def main(job_config: JobConfig):
 
     multi_dir = job_config.job.dump_folder
     multi = MultiLogger(multi_dir, job_config.to_dict(), asdict(model_config))
-    multi.load(multi_dir)
+    if job_config.checkpoint.resume:
+        multi.load(multi_dir)
     multi_metrics_list = []
 
     # train loop
