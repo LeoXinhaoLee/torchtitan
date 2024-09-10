@@ -103,27 +103,27 @@ def ttt_linear_backward(
     Attn1 = tl.load(Attn1_ptr + CS_CS_offset)
 
     grad_L_grad_l_wrt_Z1 = (
-        -(tl.dot(tl.trans(tl.where(mask, eta_mini_batch, 0)), grad_L_Z1_bar, allow_tf32=allow_tf32))
-        - (tl.dot(tl.trans(eta_mini_batch * Attn1), grad_L_Z1_bar, allow_tf32=allow_tf32))
-        - (tl.dot(last_eta_mini_batch * XK_mini_batch, grad_L_W1_last, allow_tf32=allow_tf32))
+        -(tl.dot(tl.trans(tl.where(mask, eta_mini_batch, 0)), grad_L_Z1_bar, allow_tf32=False))
+        - (tl.dot(tl.trans(eta_mini_batch * Attn1), grad_L_Z1_bar, allow_tf32=False))
+        - (tl.dot(last_eta_mini_batch * XK_mini_batch, grad_L_W1_last, allow_tf32=False))
         - (last_eta_mini_batch * grad_L_b1_last)
     )
 
     grad_L_b1_init = grad_L_b1_last + tl.sum(grad_L_Z1_bar, axis=0)
-    grad_L_W1_init = grad_L_W1_last + tl.dot(tl.trans(XQ_mini_batch), grad_L_Z1_bar, allow_tf32=allow_tf32)
+    grad_L_W1_init = grad_L_W1_last + tl.dot(tl.trans(XQ_mini_batch), grad_L_Z1_bar, allow_tf32=False)
 
-    grad_L_eta_Attn1 = tl.dot(grad_L_Z1_bar, tl.trans(grad_l_wrt_Z1), allow_tf32=allow_tf32)
+    grad_L_eta_Attn1 = tl.dot(grad_L_Z1_bar, tl.trans(grad_l_wrt_Z1), allow_tf32=False)
 
-    grad_L_XQ_mini_batch = -(tl.dot(tl.where(mask, grad_L_eta_Attn1 * eta_mini_batch, 0), XK_mini_batch, allow_tf32=allow_tf32)) + (
-        tl.dot(grad_L_Z1_bar, tl.trans(W1_init), allow_tf32=allow_tf32)
+    grad_L_XQ_mini_batch = -(tl.dot(tl.where(mask, grad_L_eta_Attn1 * eta_mini_batch, 0), XK_mini_batch, allow_tf32=False)) + (
+        tl.dot(grad_L_Z1_bar, tl.trans(W1_init), allow_tf32=False)
     )
 
     grad_L_XK_mini_batch = -(tl.dot(tl.trans(tl.where(mask, grad_L_eta_Attn1 * eta_mini_batch, 0)), XQ_mini_batch)) - (
-        tl.dot(grad_l_wrt_Z1, tl.trans(grad_L_W1_last), allow_tf32=allow_tf32) * last_eta_mini_batch
+        tl.dot(grad_l_wrt_Z1, tl.trans(grad_L_W1_last), allow_tf32=False) * last_eta_mini_batch
     )
 
     grad_L_last_eta_in_mini_batch = tl.sum(
-        -(tl.dot(grad_l_wrt_Z1, tl.trans(grad_L_W1_last), allow_tf32=allow_tf32) * XK_mini_batch) - (grad_L_b1_last * grad_l_wrt_Z1), axis=1
+        -(tl.dot(grad_l_wrt_Z1, tl.trans(grad_L_W1_last), allow_tf32=False) * XK_mini_batch) - (grad_L_b1_last * grad_l_wrt_Z1), axis=1
     )[None, :]
 
     last_mini_batch_mask = tl.arange(0, CS)[:, None] == CS - 1
@@ -183,9 +183,9 @@ def ttt_linear_backward(
 
     # TODO: W1_init seems to need 'reloading' here... throws RunTime error without it.
     W1_init = tl.load(W1_init_ptr + F_F_offset)
-    grad_L_XK = -grad_L_reconstruction_target + grad_L_XK_mini_batch + tl.dot(grad_L_Z1, tl.trans(W1_init), allow_tf32=allow_tf32)
+    grad_L_XK = -grad_L_reconstruction_target + grad_L_XK_mini_batch + tl.dot(grad_L_Z1, tl.trans(W1_init), allow_tf32=False)
 
-    grad_L_W1_states = grad_L_W1_init + tl.dot(tl.trans(XK_mini_batch), grad_L_Z1, allow_tf32=allow_tf32)
+    grad_L_W1_states = grad_L_W1_init + tl.dot(tl.trans(XK_mini_batch), grad_L_Z1, allow_tf32=False)
     grad_L_b1_states = grad_L_b1_init + tl.sum(grad_L_Z1, axis=0)
 
     tl.store(grad_L_W1_states_ptr + F_F_offset, grad_L_W1_states)
@@ -259,7 +259,7 @@ def ttt_minibatch_forward(
     b1_init = tl.load(b1_init_ptr + F_offset)
 
     # Stage 1: MatMul
-    Z1 = tl.dot(XK_mini_batch, W1_init, allow_tf32=allow_tf32) + b1_init
+    Z1 = tl.dot(XK_mini_batch, W1_init, allow_tf32=False) + b1_init
     reconstruction_target = XV_mini_batch - XK_mini_batch
 
     ln_weight = tl.load(ttt_norm_weight_ptr + norm_offset)[None, :]
@@ -288,11 +288,11 @@ def ttt_minibatch_forward(
 
     # Stage 3: Dual Form
     mask = tl.arange(0, CS)[:, None] >= tl.arange(0, CS)[None, :]
-    Attn1 = tl.where(mask, tl.dot(XQ_mini_batch, tl.trans(XK_mini_batch), allow_tf32=allow_tf32), 0)
-    b1_bar = b1_init - tl.dot(tl.where(mask, eta_mini_batch, 0), grad_l_wrt_Z1, allow_tf32=allow_tf32)
-    Z1_bar = tl.dot(XQ_mini_batch, W1_init, allow_tf32=allow_tf32) - tl.dot(eta_mini_batch * Attn1, grad_l_wrt_Z1, allow_tf32=allow_tf32) + b1_bar
+    Attn1 = tl.where(mask, tl.dot(XQ_mini_batch, tl.trans(XK_mini_batch), allow_tf32=False), 0)
+    b1_bar = b1_init - tl.dot(tl.where(mask, eta_mini_batch, 0), grad_l_wrt_Z1, allow_tf32=False)
+    Z1_bar = tl.dot(XQ_mini_batch, W1_init, allow_tf32=False) - tl.dot(eta_mini_batch * Attn1, grad_l_wrt_Z1, allow_tf32=False) + b1_bar
 
-    W1_last = W1_init - tl.dot(tl.trans(last_eta_mini_batch * XK_mini_batch), grad_l_wrt_Z1, allow_tf32=allow_tf32)
+    W1_last = W1_init - tl.dot(tl.trans(last_eta_mini_batch * XK_mini_batch), grad_l_wrt_Z1, allow_tf32=False)
     b1_last = b1_init - tl.sum(last_eta_mini_batch * grad_l_wrt_Z1, axis=0)[None, :]
 
     # Stage 4: LN
