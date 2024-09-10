@@ -2,8 +2,10 @@ import triton
 import triton.language as tl
 import torch
 
+from functools import partial
+from torch.distributed._tensor import Partial, Replicate, Shard
+from torch.distributed._tensor.experimental import local_map
 
-allow_tf32 = False
 
 @triton.jit
 def ttt_linear_backward(
@@ -324,6 +326,11 @@ def ttt_minibatch_forward(
 
 
 class TritonTTT(torch.autograd.Function):
+    @partial(
+        local_map,
+        out_placements=None,
+        in_placements=None,
+    )
     @staticmethod
     def forward(
         ctx,
@@ -419,6 +426,11 @@ class TritonTTT(torch.autograd.Function):
 
         return W1_last, b1_last, XQW_mini_batch
 
+    @partial(
+        local_map,
+        out_placements=None,
+        in_placements=None,
+    )
     @staticmethod
     def backward(ctx, grad_L_W1_last, grad_L_b1_last, grad_L_XQW_mini_batch):
         (
