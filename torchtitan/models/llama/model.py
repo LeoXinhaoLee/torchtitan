@@ -15,7 +15,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torchtitan.models.norms import build_norm
-from torchtitan.models.ttt_titan import TTTLinear, TTTMLP, TTTLinearCustomBP
+from torchtitan.models.ttt_titan import TTTLinear, TTTMLP, TTTLinearCustomBP, TTTLinearTriton
 
 
 @dataclass
@@ -325,6 +325,8 @@ class TransformerBlock(nn.Module):
             self.attention = TTTLinear(model_args)
         elif model_args.seq_modeling_block == 'ttt_linear_custom_bp':
             self.attention = TTTLinearCustomBP(model_args)
+        elif model_args.seq_modeling_block == 'ttt_linear_triton':
+            self.attention = TTTLinearTriton(model_args)
         elif model_args.seq_modeling_block == 'ttt_mlp':
             self.attention = TTTMLP(model_args)
         self.feed_forward = FeedForward(
