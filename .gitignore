@@ -25,3 +25,4 @@ exp/
 plot*
 *.sh
 *.slurm
+*.out
