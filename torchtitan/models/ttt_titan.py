@@ -427,7 +427,7 @@ class TTTLinearCustomBP(TTTBase):
         self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
         self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
 
-    def ttt(self, inputs, use_dual_form=True):
+    def ttt(self, inputs):
         mini_batch_size = self.mini_batch_size
 
         # [B, num_heads, num_mini_batch, mini_batch_size, head_dim]
@@ -488,7 +488,7 @@ class TTTLinearTriton(TTTBase):
         self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
         self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
 
-    def ttt(self, inputs, use_dual_form=True):
+    def ttt(self, inputs):
         mini_batch_size = self.mini_batch_size
 
         # [B, num_heads, num_mini_batch, mini_batch_size, head_dim]
@@ -552,7 +552,7 @@ class TTTLinear(TTTBase):
         self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
         self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
 
-    def ttt(self, inputs, use_dual_form=True):
+    def ttt(self, inputs):
         mini_batch_size = self.mini_batch_size
 
         # [B, num_heads, num_mini_batch, mini_batch_size, head_dim]
@@ -587,50 +587,25 @@ class TTTLinear(TTTBase):
             # [B,nh,K,f]
             grad_l_wrt_Z1 = ln_fused_l2_bwd(Z1, reconstruction_target, ln_weight, ln_bias)
 
-            if use_dual_form:
-                # [B,nh,K,K]
-                Attn1 = torch.tril(XQ_mini_batch @ X1.transpose(-2, -1))
+            # [B,nh,K,K]
+            Attn1 = torch.tril(XQ_mini_batch @ X1.transpose(-2, -1))
 
-                # print('ttt norm weight: ', self.ttt_norm_weight.dtype)
-                # print('XQ: ', XQ_mini_batch.dtype)
-                # print('b1_init: ', b1_init.dtype)
-                # print('eta_mini_batch: ', eta_mini_batch.dtype)
-                # print('grad_l_wrt_Z1: ', grad_l_wrt_Z1.dtype)
+            # print('ttt norm weight: ', self.ttt_norm_weight.dtype)
+            # print('XQ: ', XQ_mini_batch.dtype)
+            # print('b1_init: ', b1_init.dtype)
+            # print('eta_mini_batch: ', eta_mini_batch.dtype)
+            # print('grad_l_wrt_Z1: ', grad_l_wrt_Z1.dtype)
 
-                # [B,nh,1,f] - [B,nh,K,K] @ [B,nh,K,f] -> [B,nh,K,f]
-                b1_bar = b1_init - torch.tril(eta_mini_batch) @ grad_l_wrt_Z1
-                # [B,nh,K,f] @ [B,nh,f,f] - ([B,nh,K,1] * [B,nh,K,K]) @ [B,nh,K,f] + [B,nh,K,f]
-                Z1_bar = XQ_mini_batch @ W1_init - (eta_mini_batch * Attn1) @ grad_l_wrt_Z1 + b1_bar
+            # [B,nh,1,f] - [B,nh,K,K] @ [B,nh,K,f] -> [B,nh,K,f]
+            b1_bar = b1_init - torch.tril(eta_mini_batch) @ grad_l_wrt_Z1
+            # [B,nh,K,f] @ [B,nh,f,f] - ([B,nh,K,1] * [B,nh,K,K]) @ [B,nh,K,f] + [B,nh,K,f]
+            Z1_bar = XQ_mini_batch @ W1_init - (eta_mini_batch * Attn1) @ grad_l_wrt_Z1 + b1_bar
 
-                last_eta_mini_batch = eta_mini_batch[:, :, -1, :, None]
-                # [B,nh,f,f] - [B,nh,f,K] @ [B,nh,K,f]
-                W1_last = W1_init - (last_eta_mini_batch * X1).transpose(-1, -2) @ grad_l_wrt_Z1
-                # [B,nh,1,f]
-                b1_last = b1_init - torch.sum(last_eta_mini_batch * grad_l_wrt_Z1, dim=-2, keepdim=True)
-            else:
-                ttt_lr_eta_mini_batch = torch.broadcast_to(
-                    ttt_lr_eta_mini_batch,
-                    (
-                        *ttt_lr_eta_mini_batch.shape[:2],
-                        mini_batch_size,
-                        mini_batch_size,
-                    ),
-                )
-
-                # [B, nh, K, f, f]
-                grad_W1 = torch.einsum("bhki,bhkj->bhkij", X1, grad_l_wrt_Z1)
-                grad_W1 = torch.einsum("bhnk,bhkij->bhnij", torch.tril(ttt_lr_eta_mini_batch), grad_W1)
-                # [B, nh, K, f]
-                grad_b1 = torch.einsum("bhnk,bhki->bhni", torch.tril(ttt_lr_eta_mini_batch), grad_l_wrt_Z1)
-
-                W1_bar = W1_init.unsqueeze(2) - grad_W1 * token_eta_mini_batch.unsqueeze(-1)
-                b1_bar = b1_init - grad_b1 * token_eta_mini_batch
-
-                # [B, nh, K, 1, f] @ [B, nh, K, f, f]
-                Z1_bar = (XQ_mini_batch.unsqueeze(3) @ W1_bar).squeeze(3) + b1_bar
-
-                W1_last = W1_bar[:, :, -1]
-                b1_last = b1_bar[:, :, -1:]
+            last_eta_mini_batch = eta_mini_batch[:, :, -1, :, None]
+            # [B,nh,f,f] - [B,nh,f,K] @ [B,nh,K,f]
+            W1_last = W1_init - (last_eta_mini_batch * X1).transpose(-1, -2) @ grad_l_wrt_Z1
+            # [B,nh,1,f]
+            b1_last = b1_init - torch.sum(last_eta_mini_batch * grad_l_wrt_Z1, dim=-2, keepdim=True)
 
             Z1_bar = ln_fwd(Z1_bar, ln_weight, ln_bias)
 

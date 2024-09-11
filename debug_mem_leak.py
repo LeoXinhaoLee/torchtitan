@@ -282,6 +282,9 @@ class TTTBase(nn.Module):
         # XQ, XK = apply_rotary_pos_emb(XQ, XK, cos, sin)
         # XQ, XK = undo_permute_qk(XQ, XK)
 
+        # XQ = hidden_states.reshape(B, L, self.num_heads, self.head_dim).transpose(1, 2)
+        # XK, XV = XQ, XQ
+
         inputs = {
             "XQ": XQ,
             "XK": XK,
@@ -292,8 +295,8 @@ class TTTBase(nn.Module):
             self.get_ttt_inputs(inputs, self.mini_batch_size),
         )
 
-        output_hidden_states = self.post_norm(output_hidden_states)
-        output_hidden_states = self.wo(output_hidden_states)
+        # output_hidden_states = self.post_norm(output_hidden_states)
+        # output_hidden_states = self.wo(output_hidden_states)
 
         return output_hidden_states
 
@@ -305,7 +308,7 @@ class TTTLinear(TTTBase):
         self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
         self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
 
-    def ttt(self, inputs, use_dual_form=True):
+    def ttt(self, inputs):
         mini_batch_size = self.mini_batch_size
 
         # [B, num_heads, num_mini_batch, mini_batch_size, head_dim]
@@ -326,41 +329,57 @@ class TTTLinear(TTTBase):
             XV_mini_batch = inputs["XV"]
             XK_mini_batch = inputs["XK"]
             # [B, nh, K, 1]
-            eta_mini_batch = inputs["eta"]
+            # eta_mini_batch = inputs["eta"]
             token_eta_mini_batch = inputs["token_eta"]
             ttt_lr_eta_mini_batch = inputs["ttt_lr_eta"]
+
+            eta_mini_batch = 1. # debug
 
             X1 = XK_mini_batch
             # [B,nh,K,f] @ [B,nh,f,f] -> [B,nh,K,f]
             Z1 = X1 @ W1_init + b1_init
             reconstruction_target = XV_mini_batch - XK_mini_batch
 
-            ln_weight = self.ttt_norm_weight.reshape(self.num_heads, 1, self.head_dim)
-            ln_bias = self.ttt_norm_bias.reshape(self.num_heads, 1, self.head_dim)
+            # ln_weight = self.ttt_norm_weight.reshape(self.num_heads, 1, self.head_dim)
+            # ln_bias = self.ttt_norm_bias.reshape(self.num_heads, 1, self.head_dim)
             # [B,nh,K,f]
-            grad_l_wrt_Z1 = ln_fused_l2_bwd(Z1, reconstruction_target, ln_weight, ln_bias)
+            # grad_l_wrt_Z1 = ln_fused_l2_bwd(Z1, reconstruction_target, ln_weight, ln_bias)
+
+            grad_l_wrt_Z1 = Z1 - reconstruction_target  # debug
 
             # [B,nh,K,K]
             Attn1 = torch.tril(XQ_mini_batch @ X1.transpose(-2, -1))
             # [B,nh,1,f] - [B,nh,K,K] @ [B,nh,K,f] -> [B,nh,K,f]
-            b1_bar = b1_init - torch.tril(eta_mini_batch) @ grad_l_wrt_Z1
+            # b1_bar = b1_init - torch.tril(eta_mini_batch) @ grad_l_wrt_Z1
+            b1_bar = b1_init - eta_mini_batch * grad_l_wrt_Z1
+
             # [B,nh,K,f] @ [B,nh,f,f] - ([B,nh,K,1] * [B,nh,K,K]) @ [B,nh,K,f] + [B,nh,K,f]
             Z1_bar = XQ_mini_batch @ W1_init - (eta_mini_batch * Attn1) @ grad_l_wrt_Z1 + b1_bar
 
-            last_eta_mini_batch = eta_mini_batch[:, :, -1, :, None]
+            # last_eta_mini_batch = eta_mini_batch[:, :, -1, :, None]  # debug
+            last_eta_mini_batch = 1. # debug
+
             # [B,nh,f,f] - [B,nh,f,K] @ [B,nh,K,f]
-            W1_last = W1_init - (last_eta_mini_batch * X1).transpose(-1, -2) @ grad_l_wrt_Z1
+            # W1_last = W1_init - (last_eta_mini_batch * X1).transpose(-1, -2) @ grad_l_wrt_Z1
             # [B,nh,1,f]
-            b1_last = b1_init - torch.sum(last_eta_mini_batch * grad_l_wrt_Z1, dim=-2, keepdim=True)
+            # b1_last = b1_init - torch.sum(last_eta_mini_batch * grad_l_wrt_Z1, dim=-2, keepdim=True)
 
-            Z1_bar = ln_fwd(Z1_bar, ln_weight, ln_bias)
+            # Z1_bar = ln_fwd(Z1_bar, ln_weight, ln_bias)  # debug
 
-            XQW_mini_batch = XQ_mini_batch + Z1_bar
+            # XQW_mini_batch = XQ_mini_batch + Z1_bar
+            XQW_mini_batch = XQ_mini_batch + XV_mini_batch + XK_mini_batch
 
+            # last_param_dict = {
+            #     "W1_states": W1_last,
+            #     "b1_states": b1_last,
+            # }
+
+            # XQW_mini_batch = inputs["XQ"] * 1.
             last_param_dict = {
-                "W1_states": W1_last,
-                "b1_states": b1_last,
+                "W1_states": W1_init * 1.,
+                "b1_states": b1_init * 1.,
             }
+
             return last_param_dict, XQW_mini_batch
 
         init_params_dict = {
@@ -394,40 +413,9 @@ class TTTLinear(TTTBase):
 
 
 if __name__ == '__main__':
-    # from ml_collections import config_dict
-    #
-    # cfg = config_dict.ConfigDict()
-    # cfg.dim = 768
-    # cfg.n_heads = 12
-    # cfg.vocab_size = 32000
-    # cfg.rope_theta = 10000
-    # cfg.max_seq_len = 2048
-    # cfg.ttt_base_lr = 1.
-    # cfg.mini_batch_size = 16
-    # cfg.scan_checkpoint_group_size = 16
-
-    # model = TTTLinear(cfg).cuda()
-    # optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-    #
-    # BS = 64
-    # L = 2048
-    # D = cfg.dim
-    #
-    # inputs = torch.randn((BS, L, D), dtype=torch.float32).cuda()
-    # targets = torch.randn((BS, L, D), dtype=torch.float32).cuda()
-    #
-    # num_epochs = 100
-    # for epoch in range(num_epochs):
-    #     optimizer.zero_grad()
-    #     outputs = model(inputs)
-    #     loss = ((outputs - targets) ** 2).mean()
-    #     loss.backward()
-    #     optimizer.step()
-    #     print(f'epoch {epoch}: loss {loss}')
-    #
-    # print('Training done.')
-
+    from functools import partial
     from torchtitan.models.llama import Transformer, ModelArgs
+
     cfg = ModelArgs()
     cfg.dim = 768
     cfg.n_heads = 12
@@ -442,25 +430,72 @@ if __name__ == '__main__':
     cfg.mini_batch_size = 16
     cfg.scan_checkpoint_group_size = 16
 
-    model = Transformer(cfg).cuda()
+    model = TTTLinear(cfg).cuda()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
 
-    BS = 8
+    BS = 64
     L = 2048
     D = cfg.dim
 
-    inputs = torch.randint(low=0, high=cfg.vocab_size, size=(BS, L)).cuda()
-    targets = torch.randn((BS, L, cfg.vocab_size)).cuda()
+    inputs = torch.randn((BS, L, D), dtype=torch.float32).cuda()
+    targets = torch.randn((BS, L, D), dtype=torch.float32).cuda()
+
+    def fwd_fn(inputs):
+        outputs = model(inputs)
+        return outputs
+
+    fwd_fn_ckpt = partial(
+        torch.utils.checkpoint.checkpoint,
+        function=fwd_fn, use_reentrant=False, preserve_rng_state=False, debug=False,
+    )
 
     num_epochs = 100
     for epoch in range(num_epochs):
         optimizer.zero_grad()
-        outputs = model(inputs)
+        # outputs = model(inputs)
+        outputs = fwd_fn_ckpt(inputs=inputs)
         loss = ((outputs - targets) ** 2).mean()
         loss.backward()
         optimizer.step()
-        print(f'epoch {epoch}: loss {loss}')
+        cuda_info = torch.cuda.memory_stats(inputs.device)
+        print(f'epoch {epoch}: loss {loss} | mem: {cuda_info["active_bytes.all.peak"]}')
 
     print('Training done.')
+
+    # from torchtitan.models.llama import Transformer, ModelArgs
+    # cfg = ModelArgs()
+    # cfg.dim = 768
+    # cfg.n_heads = 12
+    # cfg.n_layers = 4
+    # cfg.vocab_size = 32000
+    # cfg.ffn_intermediate_dim = 2048
+    # cfg.tie_word_embeddings = True
+    # cfg.rope_theta = 10000
+    # cfg.max_seq_len = 2048
+    # cfg.seq_modeling_block = 'ttt_linear'
+    # cfg.ttt_base_lr = 1.
+    # cfg.mini_batch_size = 16
+    # cfg.scan_checkpoint_group_size = 16
+    #
+    # model = Transformer(cfg).cuda()
+    # optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    #
+    # BS = 8
+    # L = 2048
+    # D = cfg.dim
+    #
+    # inputs = torch.randint(low=0, high=cfg.vocab_size, size=(BS, L)).cuda()
+    # targets = torch.randn((BS, L, cfg.vocab_size)).cuda()
+    #
+    # num_epochs = 100
+    # for epoch in range(num_epochs):
+    #     optimizer.zero_grad()
+    #     outputs = model(inputs)
+    #     loss = ((outputs - targets) ** 2).mean()
+    #     loss.backward()
+    #     optimizer.step()
+    #     print(f'epoch {epoch}: loss {loss}')
+    #
+    # print('Training done.')
 
 

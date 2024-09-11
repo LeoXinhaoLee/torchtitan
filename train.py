@@ -156,6 +156,7 @@ def main(job_config: JobConfig):
     model_config.seq_modeling_block = job_config.model.seq_modeling_block
     model_config.norm_eps = job_config.model.norm_eps
     model_config.fix_normal_initializer_range = job_config.model.fix_normal_initializer_range
+    model_config.scan_checkpoint_group_size = job_config.model.scan_checkpoint_group_size
 
     logger.info(f"Building {model_name} {job_config.model.flavor} with {model_config}")
     with torch.device("meta"):

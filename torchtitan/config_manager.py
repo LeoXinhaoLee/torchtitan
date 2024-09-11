@@ -191,6 +191,12 @@ class JobConfig:
             action="store_true",
             help="Fix initializer range for all params as in TTT-LM-JAX",
         )
+        self.parser.add_argument(
+            "--model.scan_checkpoint_group_size",
+            type=int,
+            default=4,
+            help="Scan checkpoint group size for TTT inner loop",
+        )
 
         # optimizer configs
         self.parser.add_argument(
