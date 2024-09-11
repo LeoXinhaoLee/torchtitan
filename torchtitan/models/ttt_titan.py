@@ -134,7 +134,7 @@ class RotaryEmbedding(nn.Module):
 #########################
 
 
-def scan(f, init, xs, out, checkpoint_group=0):
+def scan(f, init, xs, checkpoint_group=0):
     """Minic jax.lax.scan function."""
     carry = init
     if isinstance(xs, dict):
@@ -143,25 +143,60 @@ def scan(f, init, xs, out, checkpoint_group=0):
         num_items = len(xs[0])
 
     def scan_fn(carry, i_start, i_end):
+        sub_out_list = []
         for i in range(i_start, i_end):
             if isinstance(xs, dict):
                 x = {key: tensor[i] for key, tensor in xs.items()}
             else:
                 x = [x[i] for x in xs]
             carry, y = f(carry, x)
-            out[i] = y
-        return carry
+            # out[i] = y
+            sub_out_list.append(y)
+        sub_out = torch.stack(sub_out_list)  # [GS,BS,nh,bs,f]
+        return carry, sub_out
 
     if checkpoint_group > 0:
         ckpt_every_n = num_items // checkpoint_group
+        out_list = []
         for k in range(0, num_items, ckpt_every_n):
-            carry = torch.utils.checkpoint.checkpoint(
+            carry, sub_out = torch.utils.checkpoint.checkpoint(
                 scan_fn, carry, k, min(k + ckpt_every_n, num_items), use_reentrant=False
             )
+            out_list.append(sub_out)
+        out = torch.concatenate(out_list, dim=0)
     else:
-        carry = scan_fn(carry, 0, num_items)
+        carry, out = scan_fn(carry, 0, num_items)
 
     return carry, out
+
+# def scan(f, init, xs, out, checkpoint_group=0):
+#     """Minic jax.lax.scan function."""
+#     carry = init
+#     if isinstance(xs, dict):
+#         num_items = len(next(iter(xs.values())))
+#     else:
+#         num_items = len(xs[0])
+#
+#     def scan_fn(carry, i_start, i_end):
+#         for i in range(i_start, i_end):
+#             if isinstance(xs, dict):
+#                 x = {key: tensor[i] for key, tensor in xs.items()}
+#             else:
+#                 x = [x[i] for x in xs]
+#             carry, y = f(carry, x)
+#             out[i] = y
+#         return carry
+#
+#     if checkpoint_group > 0:
+#         ckpt_every_n = num_items // checkpoint_group
+#         for k in range(0, num_items, ckpt_every_n):
+#             carry = torch.utils.checkpoint.checkpoint(
+#                 scan_fn, carry, k, min(k + ckpt_every_n, num_items), use_reentrant=False
+#             )
+#     else:
+#         carry = scan_fn(carry, 0, num_items)
+#
+#     return carry, out
 
 
 def ln_fwd(x, gamma, beta, eps=1e-6):
@@ -507,11 +542,11 @@ class TTTLinearTriton(TTTBase):
         inputs = tree_map(lambda x: x.permute(2, 0, 1, 3, 4), inputs)
 
         # allocate output tensor
-        XQW_batch = torch.empty(
-            (num_mini_batch, B, self.num_heads, mini_batch_size, self.head_dim),
-            device=device,
-            dtype=dtype,
-        )
+        # XQW_batch = torch.empty(
+        #     (num_mini_batch, B, self.num_heads, mini_batch_size, self.head_dim),
+        #     device=device,
+        #     dtype=dtype,
+        # )
 
         def compute_mini_batch(params_dict, inputs):
             W1_last, b1_last, XQW_mini_batch = TritonTTT.apply(
@@ -534,7 +569,7 @@ class TTTLinearTriton(TTTBase):
             compute_mini_batch,
             init_params_dict,
             inputs,
-            XQW_batch,
+            # XQW_batch,
             self.config.scan_checkpoint_group_size if self.training else 0,
         )
 
@@ -626,17 +661,18 @@ class TTTLinear(TTTBase):
         inputs = tree_map(lambda x: x.permute(2, 0, 1, 3, 4), inputs)
 
         # allocate output tensor
-        XQW_batch = torch.empty(
-            (num_mini_batch, B, self.num_heads, mini_batch_size, self.head_dim),
-            device=device,
-            dtype=dtype,
-        )
+        # XQW_batch = torch.empty(
+        #     (num_mini_batch, B, self.num_heads, mini_batch_size, self.head_dim),
+        #     device=device,
+        #     dtype=dtype,
+        # )
+        # XQW_batch = torch.randn_like(inputs["XV"])
         # XQW_batch: [num_mini_batch, B, num_heads, mini_batch_size, head_dim]
         batch_params_dict, XQW_batch = scan(
             compute_mini_batch,
             init_params_dict,
             inputs,
-            XQW_batch,
+            # XQW_batch,
             self.config.scan_checkpoint_group_size if self.training else 0,
         )
 
