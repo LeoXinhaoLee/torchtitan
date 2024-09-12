@@ -13,8 +13,7 @@ from torch.utils.data.dataloader import DataLoader, Dataset
 from transformers import AutoTokenizer
 from datasets import load_dataset
 
-from torchtitan.datasets.lm_dataset import LMDataset, FaultTolerantDistributedSampler
-# from ttt.infra.jax_utils import master_print
+from torchtitan.datasets.lm_dataset import LMDataset, RandomFaultTolerantSampler, FaultTolerantDistributedSampler
 
 
 class LMDataModule:
@@ -204,9 +203,12 @@ class LMDataModule:
         """The train dataloader"""
         if self.shuffle and self.fault_tolerant:
             shuffle = False
-            assert self.ddp, 'Must use DDP Sampler in Torchtitan'
-            # @xinhao: will let each worker (gpu) read only from its partition of data
-            sampler = FaultTolerantDistributedSampler(self.dataset_train)
+            # assert self.ddp, 'Must use DDP Sampler in Torchtitan'
+            if self.ddp:
+                # @xinhao: will let each worker (gpu) read only from its partition of data
+                sampler = FaultTolerantDistributedSampler(self.dataset_train)
+            else:
+                sampler = RandomFaultTolerantSampler(self.dataset_train)
         else:
             # non-fault-tolerant
             shuffle = self.shuffle

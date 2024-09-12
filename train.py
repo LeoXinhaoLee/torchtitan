@@ -133,7 +133,7 @@ def main(job_config: JobConfig):
         shuffle=True,
         fault_tolerant=True,
         drop_last=True,
-        ddp=True,
+        ddp=parallel_dims.dp_enabled,
     )
     data_module.prepare_data()
     data_module.setup()
