@@ -3,8 +3,6 @@ import triton
 import numpy as np
 import triton.language as tl
 
-from common.utils import set_seed
-from torch.utils._pytree import tree_map
 
 @triton.jit
 def ttt_batch_forward(

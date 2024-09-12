@@ -3,8 +3,10 @@ import triton.language as tl
 import torch
 
 from functools import partial
-from triton_kernels import ttt_batch_forward
-from triton_kernels import ttt_batch_backward
+from torch.distributed._tensor import Partial, Replicate, Shard
+from torch.distributed._tensor.experimental import local_map
+from torchtitan.models.triton_kernels.forward import ttt_batch_forward
+from torchtitan.models.triton_kernels.backward import ttt_batch_backward
 
 class TTTTritonScan(torch.autograd.Function):
     @staticmethod

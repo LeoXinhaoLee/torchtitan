@@ -18,8 +18,8 @@ from transformers.modeling_outputs import (
 from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import ModelOutput, logging
 
-from custom_backward import TTT
-from triton_scan import TTTTritonScan
+from torchtitan.models.custom_backward import TTT
+from torchtitan.models.triton_scan import TTTTritonScan
 
 logger = logging.get_logger(__name__)
 
@@ -791,8 +791,8 @@ class TTTLinearCustomBP(TTTBase):
 
 
 class TTTLinear(TTTBase):
-    def __init__(self, config: TTTConfig, layer_idx: Optional[int] = None):
-        super().__init__(config, layer_idx)
+    def __init__(self, config):
+        super().__init__(config)
         # TTT model initialization for TTT-Linear
         self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
         self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
