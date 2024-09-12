@@ -287,13 +287,13 @@ def ttt_batch_backward(
     W1_init_group = tl.zeros((checkpoint_group_size, F, F), dtype=tl.float32)
     b1_init_group = tl.zeros((checkpoint_group_size, 1, F), dtype=tl.float32)
     x_hat_ln_group = tl.zeros((checkpoint_group_size, CS, F), dtype=tl.float32)
-    std_ln_group = tl.zeros((checkpoint_group_size, CS, F), dtype=tl.float32)
+    std_ln_group = tl.zeros((checkpoint_group_size, CS, 1), dtype=tl.float32)
     grad_l_wrt_Z1_group = tl.zeros((checkpoint_group_size, CS, F), dtype=tl.float32)
     Attn1_group = tl.zeros((checkpoint_group_size, CS, CS), dtype=tl.float32)
     x_hat_fused_group = tl.zeros((checkpoint_group_size, CS, F), dtype=tl.float32)
     grad_x_hat_fused_group = tl.zeros((checkpoint_group_size, CS, F), dtype=tl.float32)
     grad_output_fused_group = tl.zeros((checkpoint_group_size, CS, F), dtype=tl.float32)
-    std_fused_group = tl.zeros((checkpoint_group_size, CS, F), dtype=tl.float32)
+    std_fused_group = tl.zeros((checkpoint_group_size, CS, 1), dtype=tl.float32)
 
     # Iterate over checkpoints in reverse
     for checkpoint_idx in range(K - 1, -1, -1):
