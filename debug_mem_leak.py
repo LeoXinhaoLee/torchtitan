@@ -1,3 +1,4 @@
+import pdb
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, Union
@@ -444,6 +445,10 @@ if __name__ == '__main__':
 
     model = Transformer(cfg).cuda()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    model.init_weights()
+
+    # for name, param in model.named_parameters():
+    #     print(f"Parameter name: {name}, Parameter size: {param.size()}")
 
     BS = 8
     L = 2048
@@ -458,6 +463,19 @@ if __name__ == '__main__':
         outputs = model(inputs)
         loss = ((outputs - targets) ** 2).mean()
         loss.backward()
+        # Print the gradients of all parameters
+        check_list = [
+            'attention.W1', 'attention.b1',
+            'ttt_norm_weight', 'ttt_norm_bias',
+            'learnable_ttt_lr_weight', 'learnable_ttt_lr_bias',
+            'post_norm.weight', 'post_norm.bias',
+            'wq.weight',
+        ]
+        for name, param in model.named_parameters():
+            for check_name in check_list:
+                if check_name in name:
+                    print(f"Gradient for {name} non-zero count: {torch.sum(param.grad != 0.)}")
+        # pdb.set_trace()
         optimizer.step()
         print(f'epoch {epoch}: loss {loss}')
 

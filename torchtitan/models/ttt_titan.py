@@ -254,6 +254,13 @@ class TTTBase(nn.Module):
                 nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
             nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
 
+        # @xinhao: must explicitly initialize, otherwise become 0 after transferring from meta device to real device
+        self.post_norm.reset_parameters()
+        self.ttt_norm_weight.data.copy_(torch.ones_like(self.ttt_norm_weight.data))
+        self.ttt_norm_bias.data.copy_(torch.zeros_like(self.ttt_norm_bias.data))
+        self.learnable_ttt_lr_weight.data.copy_(torch.randn_like(self.learnable_ttt_lr_weight.data) * 0.02)
+        self.learnable_ttt_lr_bias.data.copy_(torch.zeros_like(self.learnable_ttt_lr_bias.data))
+
     def _init_qkvo_proj(self):
         self.wq = nn.Linear(self.width, self.num_heads * self.head_dim, bias=False)
         self.wk = nn.Linear(self.width, self.num_heads * self.head_dim, bias=False)
@@ -487,6 +494,25 @@ class TTTLinear(TTTBase):
         # TTT model initialization for TTT-Linear
         self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
         self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
+
+    def init_weights(self, init_std: float):
+        if self.config.fix_normal_initializer_range:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.normal_(linear.weight, mean=0.0, std=self.config.initializer_range)
+            nn.init.normal_(self.wo.weight, mean=0.0, std=self.config.initializer_range)
+        else:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
+            nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
+
+        # @xinhao: must explicitly initialize, otherwise become 0 after transferring from meta device to real device
+        self.post_norm.reset_parameters()
+        self.ttt_norm_weight.data.copy_(torch.ones_like(self.ttt_norm_weight.data))
+        self.ttt_norm_bias.data.copy_(torch.zeros_like(self.ttt_norm_bias.data))
+        self.learnable_ttt_lr_weight.data.copy_(torch.randn_like(self.learnable_ttt_lr_weight.data) * 0.02)
+        self.learnable_ttt_lr_bias.data.copy_(torch.zeros_like(self.learnable_ttt_lr_bias.data))
+        self.W1.data.copy_(torch.randn_like(self.W1.data) * 0.02)
+        self.b1.data.copy_(torch.zeros_like(self.b1.data))
 
     def ttt(self, inputs, use_dual_form=True):
         mini_batch_size = self.mini_batch_size

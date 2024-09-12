@@ -196,6 +196,8 @@ def main(job_config: JobConfig):
         effective_loss = (token_nll.reshape(B, T) / valid_text_length).sum(dim=-1).mean()  # ([B,T] / [B,]).sum(-1).mean(0)
         return effective_loss
 
+    print('DP Enabled: ', parallel_dims.dp_enabled)
+
     # apply parallelisms and initialization
     if parallel_dims.pp_enabled:
         # apply PT-D Pipeline Parallel
@@ -220,6 +222,21 @@ def main(job_config: JobConfig):
         init_device = "cpu" if job_config.checkpoint.create_seed_checkpoint else "cuda"
         model.to_empty(device=init_device)
         model.init_weights()
+
+        # check_list = [
+        #     'attention.W1', 'attention.b1',
+        #     'ttt_norm_weight', 'ttt_norm_bias',
+        #     'learnable_ttt_lr_weight', 'learnable_ttt_lr_bias',
+        #     'post_norm.weight', 'post_norm.bias',
+        #     'wq.weight',
+        #     'feed_forward.w1',
+        # ]
+        # for name, param in model.named_parameters():
+        #     for check_name in check_list:
+        #         if check_name in name:
+        #             print(f"Init value for {name} non-zero count: {torch.sum(param != 0.)}")
+        # pdb.set_trace()
+
         model.train()
 
         model_parts = [model]
@@ -378,6 +395,19 @@ def main(job_config: JobConfig):
                     # need to free to before bwd to avoid peaking memory
                     del pred
                     loss.backward()
+
+            # check_list = [
+            #     'attention.W1', 'attention.b1',
+            #     'ttt_norm_weight', 'ttt_norm_bias',
+            #     'learnable_ttt_lr_weight', 'learnable_ttt_lr_bias',
+            #     'post_norm.weight', 'post_norm.bias',
+            #     'wq.weight',
+            #     'feed_forward.w1',
+            # ]
+            # for name, param in model.named_parameters():
+            #     for check_name in check_list:
+            #         if check_name in name:
+            #             print(f"Gradient for {name} non-zero count: {torch.sum(param.grad != 0.)}")
 
             # clip gradients
             for m in model_parts:
