@@ -19,6 +19,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import ModelOutput, logging
 
 from custom_backward import TTT
+from triton_scan import TTTTritonScan
 
 logger = logging.get_logger(__name__)
 
@@ -790,8 +791,8 @@ class TTTLinearCustomBP(TTTBase):
 
 
 class TTTLinear(TTTBase):
-    def __init__(self, config):
-        super().__init__(config)
+    def __init__(self, config: TTTConfig, layer_idx: Optional[int] = None):
+        super().__init__(config, layer_idx)
         # TTT model initialization for TTT-Linear
         self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
         self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
@@ -806,111 +807,21 @@ class TTTLinear(TTTBase):
         device = inputs["XV"].device
         dtype = inputs["XV"].dtype
 
-        def compute_mini_batch(params_dict, inputs):
-            # [B, nh, f, f], nh=num_heads, f=head_dim
-            W1_init = params_dict["W1_states"]
-            # [B, nh, 1, f]
-            b1_init = params_dict["b1_states"]
+        W1_states = torch.tile(self.W1.unsqueeze(0), dims=(B, 1, 1, 1))
+        b1_states = torch.tile(self.b1.unsqueeze(0), dims=(B, 1, 1, 1))
 
-            # [B,nh,K,f], K=mini_batch_size
-            XQ_mini_batch = inputs["XQ"]
-            XV_mini_batch = inputs["XV"]
-            XK_mini_batch = inputs["XK"]
-            # [B, nh, K, 1]
-            eta_mini_batch = inputs["eta"]
-            token_eta_mini_batch = inputs["token_eta"]
-            ttt_lr_eta_mini_batch = inputs["ttt_lr_eta"]
+        checkpoint_group_size = self.config.scan_checkpoint_group_size if self.config.scan_checkpoint_group_size > 0 else num_mini_batch
+        W1_last, b1_last, XQW_batch = TTTTritonScan.apply(self.ttt_norm_weight, self.ttt_norm_bias, 
+                                                            W1_states, b1_states, inputs["XQ"], 
+                                                            inputs["XV"], inputs["XK"], inputs["eta"], checkpoint_group_size)
 
-            X1 = XK_mini_batch
-            # [B,nh,K,f] @ [B,nh,f,f] -> [B,nh,K,f]
-            Z1 = X1 @ W1_init + b1_init
-            reconstruction_target = XV_mini_batch - XK_mini_batch
-
-            ln_weight = self.ttt_norm_weight.reshape(self.num_heads, 1, self.head_dim)
-            ln_bias = self.ttt_norm_bias.reshape(self.num_heads, 1, self.head_dim)
-            # [B,nh,K,f]
-            grad_l_wrt_Z1 = ln_fused_l2_bwd(Z1, reconstruction_target, ln_weight, ln_bias)
-
-            if use_dual_form:
-                # [B,nh,K,K]
-                Attn1 = torch.tril(XQ_mini_batch @ X1.transpose(-2, -1))
-
-                # print('ttt norm weight: ', self.ttt_norm_weight.dtype)
-                # print('XQ: ', XQ_mini_batch.dtype)
-                # print('b1_init: ', b1_init.dtype)
-                # print('eta_mini_batch: ', eta_mini_batch.dtype)
-                # print('grad_l_wrt_Z1: ', grad_l_wrt_Z1.dtype)
-
-                # [B,nh,1,f] - [B,nh,K,K] @ [B,nh,K,f] -> [B,nh,K,f]
-                b1_bar = b1_init - torch.tril(eta_mini_batch) @ grad_l_wrt_Z1
-                # [B,nh,K,f] @ [B,nh,f,f] - ([B,nh,K,1] * [B,nh,K,K]) @ [B,nh,K,f] + [B,nh,K,f]
-                Z1_bar = XQ_mini_batch @ W1_init - (eta_mini_batch * Attn1) @ grad_l_wrt_Z1 + b1_bar
-
-                last_eta_mini_batch = eta_mini_batch[:, :, -1, :, None]
-                # [B,nh,f,f] - [B,nh,f,K] @ [B,nh,K,f]
-                W1_last = W1_init - (last_eta_mini_batch * X1).transpose(-1, -2) @ grad_l_wrt_Z1
-                # [B,nh,1,f]
-                b1_last = b1_init - torch.sum(last_eta_mini_batch * grad_l_wrt_Z1, dim=-2, keepdim=True)
-            else:
-                ttt_lr_eta_mini_batch = torch.broadcast_to(
-                    ttt_lr_eta_mini_batch,
-                    (
-                        *ttt_lr_eta_mini_batch.shape[:2],
-                        mini_batch_size,
-                        mini_batch_size,
-                    ),
-                )
-
-                # [B, nh, K, f, f]
-                grad_W1 = torch.einsum("bhki,bhkj->bhkij", X1, grad_l_wrt_Z1)
-                grad_W1 = torch.einsum("bhnk,bhkij->bhnij", torch.tril(ttt_lr_eta_mini_batch), grad_W1)
-                # [B, nh, K, f]
-                grad_b1 = torch.einsum("bhnk,bhki->bhni", torch.tril(ttt_lr_eta_mini_batch), grad_l_wrt_Z1)
-
-                W1_bar = W1_init.unsqueeze(2) - grad_W1 * token_eta_mini_batch.unsqueeze(-1)
-                b1_bar = b1_init - grad_b1 * token_eta_mini_batch
-
-                # [B, nh, K, 1, f] @ [B, nh, K, f, f]
-                Z1_bar = (XQ_mini_batch.unsqueeze(3) @ W1_bar).squeeze(3) + b1_bar
-
-                W1_last = W1_bar[:, :, -1]
-                b1_last = b1_bar[:, :, -1:]
-
-            Z1_bar = ln_fwd(Z1_bar, ln_weight, ln_bias)
-
-            XQW_mini_batch = XQ_mini_batch + Z1_bar
-
-            last_param_dict = {
-                "W1_states": W1_last,
-                "b1_states": b1_last,
-            }
-            return last_param_dict, XQW_mini_batch
-
-        init_params_dict = {
-            "W1_states": torch.tile(self.W1.unsqueeze(0), dims=(B, 1, 1, 1)),
-            "b1_states": torch.tile(self.b1.unsqueeze(0), dims=(B, 1, 1, 1)),
+        batch_params_dict = {
+            "W1_states": W1_last,
+            "b1_states": b1_last,
         }
 
-        # [B,num_heads, num_mini_batch, mini_batch_size, f] -> [num_mini_batch, B, num_heads, mini_batch_size, f]
-        inputs = tree_map(lambda x: x.permute(2, 0, 1, 3, 4), inputs)
-
-        # allocate output tensor
-        XQW_batch = torch.empty(
-            (num_mini_batch, B, self.num_heads, mini_batch_size, self.head_dim),
-            device=device,
-            dtype=dtype,
-        )
-        # XQW_batch: [num_mini_batch, B, num_heads, mini_batch_size, head_dim]
-        batch_params_dict, XQW_batch = scan(
-            compute_mini_batch,
-            init_params_dict,
-            inputs,
-            XQW_batch,
-            self.config.scan_checkpoint_group_size if self.training else 0,
-        )
-
-        # [num_mini_batch, B, num_heads, mini_batch_size, head_dim] -> [B, num_mini_batch, mini_batch_size, num_heads, head_dim]
-        XQW_batch = XQW_batch.permute(1, 0, 3, 2, 4)
+        # [B, num_heads, num_mini_batch, mini_batch_size, f] -> [B, num_mini_batch, mini_batch_size, num_heads, head_dim]
+        XQW_batch = XQW_batch.permute(0, 2, 3, 1, 4)
         # [B, L, C]
         XQW_batch = XQW_batch.reshape(B, L, self.width)
         return XQW_batch, batch_params_dict
