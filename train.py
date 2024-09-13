@@ -397,12 +397,13 @@ def main(job_config: JobConfig):
                     loss.backward()
 
             # check_list = [
-            #     'attention.W1', 'attention.b1',
-            #     'ttt_norm_weight', 'ttt_norm_bias',
+            #     # 'attention.W1', 'attention.b1',
+            #     # 'ttt_norm_weight', 'ttt_norm_bias',
             #     'learnable_ttt_lr_weight', 'learnable_ttt_lr_bias',
-            #     'post_norm.weight', 'post_norm.bias',
-            #     'wq.weight',
-            #     'feed_forward.w1',
+            #     'learnable_token_idx',
+            #     # 'post_norm.weight', 'post_norm.bias',
+            #     # 'wq.weight',
+            #     # 'feed_forward.w1',
             # ]
             # for name, param in model.named_parameters():
             #     for check_name in check_list:

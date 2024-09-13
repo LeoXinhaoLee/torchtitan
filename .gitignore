@@ -26,3 +26,4 @@ plot*
 *.sh
 *.slurm
 *.out
+weights/

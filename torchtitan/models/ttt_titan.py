@@ -329,7 +329,7 @@ class TTTBase(nn.Module):
         token_idx = token_idx[mini_batch_step_offset: mini_batch_step_offset + mini_batch_size]
 
         # token idx should be greast than 0
-        token_idx = torch.clamp_min(token_idx, 0.0)
+        token_idx = torch.clamp_min(token_idx, 0.0)  # TODO: this can lead to a dead lock where no time-mixing can happen
 
         # NOTE: token_eta is a scale factor that applies to each token in the mini-batch
         # [B, num_heads, num_mini_batch, mini_batch_size, 1]
