@@ -8,7 +8,7 @@ from torch.distributed._tensor.experimental import local_map
 from torchtitan.models.triton_kernels.forward import ttt_batch_forward
 from torchtitan.models.triton_kernels.backward import ttt_batch_backward
 
-class TTTTritonScan(torch.autograd.Function):
+class TritonTTTScan(torch.autograd.Function):
     @staticmethod
     @partial(
         local_map,
