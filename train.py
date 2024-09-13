@@ -12,6 +12,8 @@ from datetime import timedelta
 from tqdm import tqdm
 from dataclasses import dataclass, asdict
 
+import random
+import numpy as np
 import torch
 from torch.distributed.elastic.multiprocessing.errors import record
 
@@ -53,6 +55,15 @@ def get_train_context(enable_loss_parallel: bool, enable_compiled_autograd: bool
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
 @record
 def main(job_config: JobConfig):
+
+    # @xinhao: copy from ttt-lm-jax
+    def set_random_seed(seed):
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.manual_seed(seed)
+
+    set_random_seed(0)
+
     init_logger()
     logger.info(f"Starting job: {job_config.job.description}")
 
