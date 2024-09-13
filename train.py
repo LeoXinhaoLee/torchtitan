@@ -237,8 +237,8 @@ def main(job_config: JobConfig):
         #             print(f"Init value for {name} non-zero count: {torch.sum(param != 0.)}")
         # pdb.set_trace()
 
+        model.load_state_dict(torch.load('/nlp/scr/yusun/data/xinhao/retrofit/torchtitan/weights/09-11-Tok-llama2-D-PILE-0.15B-T-2k-BS-16-M1-Tiehead-False-ilr-1-lr-3e-3-titan-init-weight/jax_init_weights.pth'))
         model.train()
-
         model_parts = [model]
 
     gpu_mem_stats = gpu_memory_monitor.get_peak_stats()

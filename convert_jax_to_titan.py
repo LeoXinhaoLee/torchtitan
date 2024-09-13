@@ -16,6 +16,7 @@ import json
 import math
 import os
 import shutil
+import copy
 
 import numpy as np
 import jax
@@ -30,6 +31,7 @@ from ttt.models.model import CONFIGS, ModelConfig
 from ttt.infra.checkpoint import StreamingCheckpointer
 from ttt.infra.jax_utils import float_tensor_to_dtype
 
+from torchtitan.models.llama.model import ModelArgs, Transformer
 
 FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
     load_checkpoint='',
@@ -107,25 +109,29 @@ def write_model(loaded, model_path, config):
     from the names of jax model to the names of PyTorch model.
     """
 
+    titan_config = ModelArgs(vocab_size=32000, dim=768, n_layers=12, n_heads=12, ffn_intermediate_dim=2048,
+                             tie_word_embeddings=False, norm_eps=1e-6, seq_modeling_block='ttt_linear')
+    model = Transformer(titan_config)
+    freqs_cis = copy.deepcopy(model.freqs_cis)
+    del model
+
     os.makedirs(model_path, exist_ok=True)
-
     n_layers = config.num_hidden_layers
-
+    state_dict = {}
+    state_dict["freqs_cis"] = freqs_cis
     param_count = 0
     for layer_i in range(n_layers):
-        state_dict = {
-            f"layers.{layer_i}.attention.wq.weight": loaded[f"model.h.{layer_i}.seq_modeling_block.wq.kernel"],
-            f"layers.{layer_i}.attention.wk.weight": loaded[f"model.h.{layer_i}.seq_modeling_block.wk.kernel"],
-            f"layers.{layer_i}.attention.wv.weight": loaded[f"model.h.{layer_i}.seq_modeling_block.wv.kernel"],
-            f"layers.{layer_i}.attention.wo.weight": loaded[f"model.h.{layer_i}.seq_modeling_block.wo.kernel"],
+        state_dict[f"layers.{layer_i}.attention.wq.weight"] = loaded[f"model.h.{layer_i}.seq_modeling_block.wq.kernel"]
+        state_dict[f"layers.{layer_i}.attention.wk.weight"] = loaded[f"model.h.{layer_i}.seq_modeling_block.wk.kernel"]
+        state_dict[f"layers.{layer_i}.attention.wv.weight"] = loaded[f"model.h.{layer_i}.seq_modeling_block.wv.kernel"]
+        state_dict[f"layers.{layer_i}.attention.wo.weight"] = loaded[f"model.h.{layer_i}.seq_modeling_block.wo.kernel"]
 
-            f"layers.{layer_i}.feed_forward.w1.weight": loaded[f"model.h.{layer_i}.feed_forward.w1.kernel"],
-            f"layers.{layer_i}.feed_forward.w2.weight": loaded[f"model.h.{layer_i}.feed_forward.w2.kernel"],
-            f"layers.{layer_i}.feed_forward.w3.weight": loaded[f"model.h.{layer_i}.feed_forward.w3.kernel"],
+        state_dict[f"layers.{layer_i}.feed_forward.w1.weight"] = loaded[f"model.h.{layer_i}.feed_forward.w1.kernel"]
+        state_dict[f"layers.{layer_i}.feed_forward.w2.weight"] = loaded[f"model.h.{layer_i}.feed_forward.w2.kernel"]
+        state_dict[f"layers.{layer_i}.feed_forward.w3.weight"] = loaded[f"model.h.{layer_i}.feed_forward.w3.kernel"]
 
-            f"layers.{layer_i}.attention_norm.weight": loaded[f"model.h.{layer_i}.seq_norm.kernel"],
-            f"layers.{layer_i}.ffn_norm.weight": loaded[f"model.h.{layer_i}.ffn_norm.kernel"],
-        }
+        state_dict[f"layers.{layer_i}.attention_norm.weight"] = loaded[f"model.h.{layer_i}.seq_norm.kernel"]
+        state_dict[f"layers.{layer_i}.ffn_norm.weight"] = loaded[f"model.h.{layer_i}.ffn_norm.kernel"]
 
         state_dict[f"layers.{layer_i}.attention.learnable_ttt_lr_weight"] = loaded[f"model.h.{layer_i}.seq_modeling_block.learnable_ttt_lr/kernel"]
         state_dict[f"layers.{layer_i}.attention.learnable_ttt_lr_bias"] = loaded[f"model.h.{layer_i}.seq_modeling_block.learnable_ttt_lr/bias"]
@@ -143,14 +149,13 @@ def write_model(loaded, model_path, config):
         state_dict[f"layers.{layer_i}.attention.post_norm.bias"] = loaded[f"model.h.{layer_i}.seq_modeling_block.post_norm.bias"]
 
     # Unsharded
-    state_dict = {
-        "tok_embeddings.weight": loaded["model.wte.embedding"],
-        "norm.weight": loaded["model.ln_f.kernel"],
-        "output.weight": loaded["lm_head.kernel"],
-    }
+    state_dict["tok_embeddings.weight"] = loaded["model.wte.embedding"]
+    state_dict["norm.weight"] = loaded["model.ln_f.kernel"]
+    state_dict["output.weight"] = loaded["lm_head.kernel"]
 
     for k, v in state_dict.items():
-        param_count += v.numel()
+        if k != 'freqs_cis':
+            param_count += v.numel()
 
     print('param cound: ', param_count)
     torch.save(state_dict, os.path.join(model_path, 'jax_init_weights.pth'))
