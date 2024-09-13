@@ -19,6 +19,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import ModelOutput, logging
 
 from torchtitan.models.custom_backward import TTT
+from torchtitan.models.triton_scan import TritonTTTScan
 
 logger = logging.get_logger(__name__)
 
@@ -483,6 +484,62 @@ class TTTLinearCustomBP(TTTBase):
 
         # [num_mini_batch, B, num_heads, mini_batch_size, head_dim] -> [B, num_mini_batch, mini_batch_size, num_heads, head_dim]
         XQW_batch = XQW_batch.permute(1, 0, 3, 2, 4)
+        # [B, L, C]
+        XQW_batch = XQW_batch.reshape(B, L, self.width)
+        return XQW_batch, batch_params_dict
+
+
+class TTTLinearTriton(TTTBase):
+    def __init__(self, config):
+        super().__init__(config)
+        # TTT model initialization for TTT-Linear
+        self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
+        self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
+
+    def init_weights(self, init_std: float):
+        if self.config.fix_normal_initializer_range:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.normal_(linear.weight, mean=0.0, std=self.config.initializer_range)
+            nn.init.normal_(self.wo.weight, mean=0.0, std=self.config.initializer_range)
+        else:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
+            nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
+
+        # @xinhao: must explicitly initialize, otherwise become 0 after transferring from meta device to real device
+        self.post_norm.reset_parameters()
+        self.ttt_norm_weight.data.copy_(torch.ones_like(self.ttt_norm_weight.data))
+        self.ttt_norm_bias.data.copy_(torch.zeros_like(self.ttt_norm_bias.data))
+        self.learnable_ttt_lr_weight.data.copy_(torch.randn_like(self.learnable_ttt_lr_weight.data) * 0.02)
+        self.learnable_ttt_lr_bias.data.copy_(torch.zeros_like(self.learnable_ttt_lr_bias.data))
+        self.W1.data.copy_(torch.randn_like(self.W1.data) * 0.02)
+        self.b1.data.copy_(torch.zeros_like(self.b1.data))
+
+    def ttt(self, inputs, use_dual_form=True):
+        mini_batch_size = self.mini_batch_size
+
+        # [B, num_heads, num_mini_batch, mini_batch_size, head_dim]
+        B = inputs["XV"].shape[0]
+        num_mini_batch = inputs["XV"].shape[2]
+        L = inputs["XV"].shape[2] * inputs["XV"].shape[3]
+        device = inputs["XV"].device
+        dtype = inputs["XV"].dtype
+
+        W1_states = torch.tile(self.W1.unsqueeze(0), dims=(B, 1, 1, 1))
+        b1_states = torch.tile(self.b1.unsqueeze(0), dims=(B, 1, 1, 1))
+
+        checkpoint_group_size = self.config.scan_checkpoint_group_size if self.config.scan_checkpoint_group_size > 0 else num_mini_batch
+        W1_last, b1_last, XQW_batch = TritonTTTScan.apply(self.ttt_norm_weight, self.ttt_norm_bias,
+                                                            W1_states, b1_states, inputs["XQ"],
+                                                            inputs["XV"], inputs["XK"], inputs["eta"], checkpoint_group_size)
+
+        batch_params_dict = {
+            "W1_states": W1_last,
+            "b1_states": b1_last,
+        }
+
+        # [B, num_heads, num_mini_batch, mini_batch_size, f] -> [B, num_mini_batch, mini_batch_size, num_heads, head_dim]
+        XQW_batch = XQW_batch.permute(0, 2, 3, 1, 4)
         # [B, L, C]
         XQW_batch = XQW_batch.reshape(B, L, self.width)
         return XQW_batch, batch_params_dict
