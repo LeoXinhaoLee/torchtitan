@@ -450,14 +450,14 @@ class JobConfig:
                 0 is the default value.
             """,
         )
-        # # @xinhao
-        # self.parser.add_argument(
-        #     "--checkpoint.resume",
-        #     action='store_true',
-        #     help="""
-        #         If resume from a model ckpt.
-        #     """,
-        # )
+        # @xinhao
+        self.parser.add_argument(
+            "--checkpoint.resume",
+            action='store_true',
+            help="""
+                If resume from a model ckpt. Otherwise, overwrite output dir if it exists.
+            """,
+        )
 
         # activation checkpointing configs
         self.parser.add_argument(

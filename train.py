@@ -120,6 +120,8 @@ def main(job_config: JobConfig):
     # )
 
     # @xinhao: use ttt-lm-jax, but use distributed data loader
+    # ddp_loader = parallel_dims.dp_enabled  # @xinhao: batch_size: local
+    ddp_loader = False  # @xinhao: batch_size: global
     data_module = LMDataModule(
         dataset_name='the_pile',
         dataset_config_name=None,
@@ -133,7 +135,7 @@ def main(job_config: JobConfig):
         shuffle=True,
         fault_tolerant=True,
         drop_last=True,
-        ddp=parallel_dims.dp_enabled,
+        ddp=ddp_loader,
     )
     data_module.prepare_data()
     data_module.setup()
@@ -237,7 +239,7 @@ def main(job_config: JobConfig):
         #             print(f"Init value for {name} non-zero count: {torch.sum(param != 0.)}")
         # pdb.set_trace()
 
-        model.load_state_dict(torch.load('/nlp/scr/yusun/data/xinhao/retrofit/torchtitan/weights/09-11-Tok-llama2-D-PILE-0.15B-T-2k-BS-16-M1-Tiehead-False-ilr-1-lr-3e-3-titan-init-weight/jax_init_weights.pth'))
+        # model.load_state_dict(torch.load('/nlp/scr/yusun/data/xinhao/retrofit/torchtitan/weights/09-11-Tok-llama2-D-PILE-0.15B-T-2k-BS-16-M1-Tiehead-False-ilr-1-lr-3e-3-titan-init-weight/jax_init_weights.pth'))
         model.train()
         model_parts = [model]
 
@@ -321,8 +323,13 @@ def main(job_config: JobConfig):
     logger.info(
         # @xinhao: original: `train_state.step + 1`, here modified to align with tqdm: how many steps that have been trained
         f"Training starts at step {train_state.step}, "
-        f"with local batch size {job_config.training.batch_size}, "
-        f"global batch size {job_config.training.batch_size * dp_degree}, "
+        # f"with local batch size {job_config.training.batch_size}, "
+        # f"global batch size {job_config.training.batch_size * dp_degree}, "
+        
+        # @xinhao: use non ddp loader as ttt-lm-jax, where batch_size is global
+        f"with local batch size {job_config.training.batch_size //  dp_degree}, "
+        f"global batch size {job_config.training.batch_size}, "
+        
         f"sequence length {job_config.training.seq_len}, "
         f"total steps {job_config.training.steps} "
         f"(warmup {job_config.training.warmup_steps})"
@@ -357,6 +364,11 @@ def main(job_config: JobConfig):
                 batch = next(data_iterator)
 
             input_ids, labels, loss_masks = batch['input_tokens'], batch['target_tokens'], batch['loss_masks']
+            if not ddp_loader:
+                local_bs = input_ids.shape[0] // dp_degree
+                input_ids = input_ids[dp_rank * local_bs : (dp_rank + 1) * local_bs]
+                labels = labels[dp_rank * local_bs : (dp_rank + 1) * local_bs]
+                loss_masks = loss_masks[dp_rank * local_bs : (dp_rank + 1) * local_bs]
 
             ntokens_since_last_log += labels.numel()
 
