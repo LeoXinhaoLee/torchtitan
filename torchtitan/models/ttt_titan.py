@@ -112,6 +112,11 @@ class RotaryEmbedding(nn.Module):
         inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.int64).float().to(device) / self.dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
+    def init_weights(self):
+        device = self.inv_freq.device
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.int64).float().to(device) / self.dim))
+        self.inv_freq.copy_(inv_freq)
+
     @torch.no_grad()
     def forward(self, x, position_ids):
         # x: [bs, num_attention_heads, seq_len, head_size]
@@ -256,6 +261,8 @@ class TTTBase(nn.Module):
             nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
 
         # @xinhao: must explicitly initialize, otherwise become 0 after transferring from meta device to real device
+        self.rotary_emb.init_weights()
+        self.token_idx.copy_(1.0 / torch.arange(1, self.mini_batch_size + 1))
         self.post_norm.reset_parameters()
         self.ttt_norm_weight.data.copy_(torch.ones_like(self.ttt_norm_weight.data))
         self.ttt_norm_bias.data.copy_(torch.zeros_like(self.ttt_norm_bias.data))
@@ -434,6 +441,27 @@ class TTTLinearCustomBP(TTTBase):
         self.W1 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, self.head_dim, self.head_dim)))
         self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
 
+    def init_weights(self, init_std: float):
+        if self.config.fix_normal_initializer_range:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.normal_(linear.weight, mean=0.0, std=self.config.initializer_range)
+            nn.init.normal_(self.wo.weight, mean=0.0, std=self.config.initializer_range)
+        else:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
+            nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
+
+        # @xinhao: must explicitly initialize, otherwise become 0 after transferring from meta device to real device
+        self.rotary_emb.init_weights()
+        self.token_idx.copy_(1.0 / torch.arange(1, self.mini_batch_size + 1))
+        self.post_norm.reset_parameters()
+        self.ttt_norm_weight.data.copy_(torch.ones_like(self.ttt_norm_weight.data))
+        self.ttt_norm_bias.data.copy_(torch.zeros_like(self.ttt_norm_bias.data))
+        self.learnable_ttt_lr_weight.data.copy_(torch.randn_like(self.learnable_ttt_lr_weight.data) * 0.02)
+        self.learnable_ttt_lr_bias.data.copy_(torch.zeros_like(self.learnable_ttt_lr_bias.data))
+        self.W1.data.copy_(torch.randn_like(self.W1.data) * 0.02)
+        self.b1.data.copy_(torch.zeros_like(self.b1.data))
+
     def ttt(self, inputs, use_dual_form=True):
         mini_batch_size = self.mini_batch_size
 
@@ -507,6 +535,8 @@ class TTTLinearTriton(TTTBase):
             nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
 
         # @xinhao: must explicitly initialize, otherwise become 0 after transferring from meta device to real device
+        self.rotary_emb.init_weights()
+        self.token_idx.copy_(1.0 / torch.arange(1, self.mini_batch_size + 1))
         self.post_norm.reset_parameters()
         self.ttt_norm_weight.data.copy_(torch.ones_like(self.ttt_norm_weight.data))
         self.ttt_norm_bias.data.copy_(torch.zeros_like(self.ttt_norm_bias.data))
@@ -562,7 +592,9 @@ class TTTLinear(TTTBase):
                 nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
             nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
 
-        # @xinhao: must explicitly initialize, otherwise become 0 after transferring from meta device to real device
+        # @xinhao: must explicitly initialize, otherwise become 0 after transferring from meta device to real
+        self.rotary_emb.init_weights()
+        self.token_idx.copy_(1.0 / torch.arange(1, self.mini_batch_size + 1))
         self.post_norm.reset_parameters()
         self.ttt_norm_weight.data.copy_(torch.ones_like(self.ttt_norm_weight.data))
         self.ttt_norm_bias.data.copy_(torch.zeros_like(self.ttt_norm_bias.data))
@@ -699,6 +731,29 @@ class TTTMLP(TTTBase):
         self.b1 = nn.Parameter(torch.zeros(self.num_heads, 1, 4 * self.head_dim))
         self.W2 = nn.Parameter(torch.normal(0, 0.02, size=(self.num_heads, 4 * self.head_dim, self.head_dim)))
         self.b2 = nn.Parameter(torch.zeros(self.num_heads, 1, self.head_dim))
+
+    def init_weights(self, init_std: float):
+        if self.config.fix_normal_initializer_range:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.normal_(linear.weight, mean=0.0, std=self.config.initializer_range)
+            nn.init.normal_(self.wo.weight, mean=0.0, std=self.config.initializer_range)
+        else:
+            for linear in (self.wq, self.wk, self.wv):
+                nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
+            nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
+
+        # @xinhao: must explicitly initialize, otherwise become 0 after transferring from meta device to real device
+        self.rotary_emb.init_weights()
+        self.token_idx.copy_(1.0 / torch.arange(1, self.mini_batch_size + 1))
+        self.post_norm.reset_parameters()
+        self.ttt_norm_weight.data.copy_(torch.ones_like(self.ttt_norm_weight.data))
+        self.ttt_norm_bias.data.copy_(torch.zeros_like(self.ttt_norm_bias.data))
+        self.learnable_ttt_lr_weight.data.copy_(torch.randn_like(self.learnable_ttt_lr_weight.data) * 0.02)
+        self.learnable_ttt_lr_bias.data.copy_(torch.zeros_like(self.learnable_ttt_lr_bias.data))
+        self.W1.data.copy_(torch.randn_like(self.W1.data) * 0.02)
+        self.b1.data.copy_(torch.zeros_like(self.b1.data))
+        self.W2.data.copy_(torch.randn_like(self.W2.data) * 0.02)
+        self.b2.data.copy_(torch.zeros_like(self.b2.data))
 
     def ttt(
         self,

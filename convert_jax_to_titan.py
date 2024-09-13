@@ -157,7 +157,7 @@ def write_model(loaded, model_path, config):
         if k != 'freqs_cis':
             param_count += v.numel()
 
-    print('param cound: ', param_count)
+    print('param count: ', param_count)
     torch.save(state_dict, os.path.join(model_path, 'jax_init_weights.pth'))
 
 
