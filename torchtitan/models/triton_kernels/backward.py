@@ -270,6 +270,7 @@ def ttt_batch_backward(
     F_F_offset = batch * NH * F_F_stride + head * F_F_stride + tl.arange(0, F)[:, None] * F + tl.arange(0, F)[None, :]
     F_offset = batch * NH * F_stride + head * F_stride + tl.arange(0, F)[None, :]
     norm_offset = head * F_stride + tl.arange(0, F)
+    norm_store_offset = batch * NH * F_stride + head * F_stride + tl.arange(0, F)[None, :]
 
     ln_weight = tl.load(ttt_norm_weight_ptr + norm_offset)[None, :]
     ln_bias = tl.load(ttt_norm_bias_ptr + norm_offset)[None, :]
@@ -450,15 +451,12 @@ def ttt_batch_backward(
             grad_L_b1_last = grad_L_b1_states
             grad_L_ttt_norm_weight += grad_L_ttt_norm_weight_mini_batch
             grad_L_ttt_norm_bias += grad_L_ttt_norm_bias_mini_batch
-        
-    # Store final accumulated gradients. TODO: We should really fix the dimensionality mismatches
-    grad_L_ttt_norm_weight = tl.sum(grad_L_ttt_norm_weight, axis=0)
-    grad_L_ttt_norm_bias = tl.sum(grad_L_ttt_norm_bias, axis=0)
 
+    # Store final accumulated gradients.
     grad_L_W1_states = grad_L_W1_last
     grad_L_b1_states = grad_L_b1_last
 
-    tl.store(grad_L_ttt_norm_weight_ptr + norm_offset, grad_L_ttt_norm_weight)
-    tl.store(grad_L_ttt_norm_bias_ptr + norm_offset, grad_L_ttt_norm_bias)
+    tl.store(grad_L_ttt_norm_weight_ptr + norm_store_offset, grad_L_ttt_norm_weight)
+    tl.store(grad_L_ttt_norm_bias_ptr + norm_store_offset, grad_L_ttt_norm_bias)
     tl.store(grad_L_W1_states_ptr + F_F_offset, grad_L_W1_states)
     tl.store(grad_L_b1_states_ptr + F_offset, grad_L_b1_states)
