@@ -400,13 +400,27 @@ def main(job_config: JobConfig):
                 )
             else:
                 # Non-PP forward / backward
-                with train_context():
-                    pred = model(input_ids)
-                    loss = loss_fn(pred, labels, loss_masks)
-                    # pred.shape=(bs, seq_len, vocab_size)
-                    # need to free to before bwd to avoid peaking memory
-                    del pred
-                    loss.backward()
+                # with train_context():
+                #     pred = model(input_ids)
+                #     loss = loss_fn(pred, labels, loss_masks)
+                #     # pred.shape=(bs, seq_len, vocab_size)
+                #     # need to free to before bwd to avoid peaking memory
+                #     del pred
+                #     loss.backward()
+                loss = 0.
+                for accum_step in range(job_config.training.grad_accum_steps):
+                    micro_bs = local_bs // job_config.training.grad_accum_steps
+                    input_ids_micro = input_ids[accum_step * micro_bs : (accum_step + 1) * micro_bs]
+                    labels_micro = labels[accum_step * micro_bs : (accum_step + 1) * micro_bs]
+                    loss_masks_micro = loss_masks[accum_step * micro_bs : (accum_step + 1) * micro_bs]
+                    if parallel_dims.dp_enabled:
+                        model.set_requires_gradient_sync(accum_step == (job_config.training.grad_accum_steps - 1))
+                    with train_context():
+                        pred_micro = model(input_ids_micro)
+                        loss_micro = loss_fn(pred_micro, labels_micro, loss_masks_micro) / job_config.training.grad_accum_steps
+                        del pred_micro
+                        loss_micro.backward()
+                        loss += loss_micro
 
             # check_list = [
             #     # 'attention.W1', 'attention.b1',

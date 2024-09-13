@@ -224,6 +224,10 @@ class JobConfig:
         self.parser.add_argument(
             "--training.batch_size", type=int, default=8, help="Batch size"
         )
+        # @xinhao
+        self.parser.add_argument(
+            "--training.grad_accum_steps", type=int, default=1, help="Grad accumulatation steps"
+        )
         self.parser.add_argument(
             "--training.seq_len", type=int, default=2048, help="Sequence length"
         )
