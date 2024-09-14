@@ -446,6 +446,7 @@ class CheckpointManager:
 
     def load(self, step: int = -1, ckpt_path: str = '') -> bool:
         if ckpt_path:
+            states = {"model": self.states["model"]}
             dcp.load(states, checkpoint_id=ckpt_path)
             return True
 

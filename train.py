@@ -282,7 +282,7 @@ def main(job_config: JobConfig):
 
     if job_config.checkpoint.jax_seed_checkpoint:
         # @xinhao: loading from weight initialization converted from jax
-        checkpoint_loaded = checkpoint.load(job_config.checkpoint.jax_seed_checkpoint)
+        checkpoint_loaded = checkpoint.load(ckpt_path=job_config.checkpoint.jax_seed_checkpoint)
     else:
         checkpoint_loaded = checkpoint.load()
     # @xinhao: hotfix that solves the bug that the second resume still starts from the first resume step count
