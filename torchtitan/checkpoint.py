@@ -448,6 +448,7 @@ class CheckpointManager:
         if ckpt_path:
             states = {"model": self.states["model"]}
             dcp.load(states, checkpoint_id=ckpt_path)
+            logger.info(f"Loading the checkpoint from {ckpt_path}.")
             return True
 
         if not self.enable_checkpoint:
