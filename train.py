@@ -129,7 +129,7 @@ def main(job_config: JobConfig):
         cache_dir=job_config.training.dataset,
         max_length=job_config.training.seq_len,
         add_eos=True,
-        batch_size=job_config.training.batch_size,  # per-dev batch size
+        batch_size=job_config.training.batch_size,  # global batch size
         batch_size_eval=job_config.training.batch_size,
         loader_workers=8,
         shuffle=True,
@@ -241,7 +241,11 @@ def main(job_config: JobConfig):
         #             print(f"Init value for {name} non-zero count: {torch.sum(param != 0.)}")
         # pdb.set_trace()
 
-        model.load_state_dict(torch.load('/nlp/scr/yusun/data/xinhao/retrofit/torchtitan/weights/09-11-Tok-llama2-D-PILE-0.15B-T-2k-BS-16-M1-Tiehead-False-ilr-1-lr-3e-3-titan-init-weight/jax_init_weights.pth'))
+        # TODO: @xinhao doesn't consider tp for now
+        # init_ckpt_path = '/nlp/scr/yusun/data/xinhao/retrofit/torchtitan/weights/09-11-Tok-llama2-D-PILE-0.15B-T-2k-BS-16-M1-Tiehead-False-ilr-1-lr-3e-3-titan-init-weight/jax_init_weights.pth'
+        # init_ckpt = torch.load(init_ckpt_path, map_location="cpu")
+        # model.load_state_dict(init_ckpt)
+
         model.train()
         model_parts = [model]
 
@@ -276,7 +280,11 @@ def main(job_config: JobConfig):
         logger.info("Created seed checkpoint")
         return
 
-    checkpoint_loaded = checkpoint.load()
+    if job_config.checkpoint.jax_seed_checkpoint:
+        # @xinhao: loading from weight initialization converted from jax
+        checkpoint_loaded = checkpoint.load(job_config.checkpoint.jax_seed_checkpoint)
+    else:
+        checkpoint_loaded = checkpoint.load()
     # @xinhao: hotfix that solves the bug that the second resume still starts from the first resume step count
     checkpoint.states["train_state"] = train_state
 
@@ -367,6 +375,7 @@ def main(job_config: JobConfig):
 
             input_ids, labels, loss_masks = batch['input_tokens'], batch['target_tokens'], batch['loss_masks']
             if not ddp_loader:
+                # @xinhao: rn always true to align with ttt-lm-jax
                 local_bs = input_ids.shape[0] // dp_degree
                 input_ids = input_ids[dp_rank * local_bs : (dp_rank + 1) * local_bs]
                 labels = labels[dp_rank * local_bs : (dp_rank + 1) * local_bs]

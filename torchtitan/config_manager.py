@@ -462,6 +462,14 @@ class JobConfig:
                 If resume from a model ckpt. Otherwise, overwrite output dir if it exists.
             """,
         )
+        self.parser.add_argument(
+            "--checkpoint.jax_seed_checkpoint",
+            type=str,
+            default='',
+            help="""
+                If resume from a model initialization converted from jax.
+            """,
+        )
 
         # activation checkpointing configs
         self.parser.add_argument(

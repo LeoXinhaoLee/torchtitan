@@ -444,7 +444,11 @@ class CheckpointManager:
             self.mp_queue_send.put((self.staging_state_dict, self.staging_id))
             self.staging = False
 
-    def load(self, step: int = -1) -> bool:
+    def load(self, step: int = -1, ckpt_path: str = '') -> bool:
+        if ckpt_path:
+            dcp.load(states, checkpoint_id=ckpt_path)
+            return True
+
         if not self.enable_checkpoint:
             return False
         if not os.path.isdir(self.folder):
