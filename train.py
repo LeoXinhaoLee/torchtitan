@@ -99,28 +99,10 @@ def main(job_config: JobConfig):
     else:
         dp_degree, dp_rank = 1, 0
 
-    if parallel_dims.pp_enabled:
-        pp_mesh = world_mesh["pp"]
+    assert not parallel_dims.pp_enabled, "Currently, pipeline parallel is not supported."
 
     model_name = job_config.model.name
 
-    # build tokenizer
-    # tokenizer_type = model_name_to_tokenizer[model_name]
-    # tokenizer = build_tokenizer(tokenizer_type, job_config.model.tokenizer_path)
-
-    # build dataloader
-    # data_loader = build_hf_data_loader(
-    #     job_config.training.dataset,
-    #     job_config.training.dataset_path,
-    #     tokenizer,
-    #     job_config.training.batch_size,
-    #     job_config.training.seq_len,
-    #     dp_degree,
-    #     dp_rank,
-    # )
-
-    # @xinhao: use ttt-lm-jax, but use distributed data loader
-    # ddp_loader = parallel_dims.dp_enabled  # @xinhao: batch_size: local
     ddp_loader = False  # @xinhao: batch_size: global
     data_module = LMDataModule(
         dataset_name='the_pile',
@@ -129,7 +111,7 @@ def main(job_config: JobConfig):
         cache_dir=job_config.training.dataset,
         max_length=job_config.training.seq_len,
         add_eos=True,
-        batch_size=job_config.training.batch_size,  # global batch size
+        batch_size=job_config.training.batch_size,
         batch_size_eval=job_config.training.batch_size,
         loader_workers=8,
         shuffle=True,
@@ -146,15 +128,10 @@ def main(job_config: JobConfig):
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
     model_config = models_config[model_name][job_config.model.flavor]
-    # set the model configs from training inputs:
-    # 1. norm type to decide which norm layer to use
-    # 2. vocab size from tokenizer
-    # 3. max_seq_len base on inputs
     model_config.norm_type = job_config.model.norm_type
-    # model_config.vocab_size = tokenizer.n_words
     model_config.vocab_size = len(tokenizer)
     model_config.max_seq_len = job_config.training.seq_len
-    # @xinhao adds below
+    # @xinhao add below
     model_config.seq_modeling_block = job_config.model.seq_modeling_block
     model_config.norm_eps = job_config.model.norm_eps
     model_config.fix_normal_initializer_range = job_config.model.fix_normal_initializer_range
@@ -198,56 +175,18 @@ def main(job_config: JobConfig):
         effective_loss = (token_nll.reshape(B, T) / valid_text_length).sum(dim=-1).mean()  # ([B,T] / [B,]).sum(-1).mean(0)
         return effective_loss
 
-    print('DP Enabled: ', parallel_dims.dp_enabled)
+    # apply PT-D Tensor Parallel, activation checkpointing, torch.compile, Data Parallel
+    models_parallelize_fns[model_name](model, world_mesh, parallel_dims, job_config)
 
-    # apply parallelisms and initialization
-    if parallel_dims.pp_enabled:
-        # apply PT-D Pipeline Parallel
-        pp_schedule, model_parts = models_pipelining_fns[model_name](
-            model, pp_mesh, parallel_dims, job_config, device, model_config, loss_fn
-        )
-
-        # For PP with looped schedules, each item in model_parts is one stage-model-chunk.
-        # We need to iterate through model_parts to apply SPMD parallelisms, compilation,
-        # optimizer, and checkpointing
-        for m in model_parts:
-            # apply SPMD-style PT-D techniques
-            models_parallelize_fns[model_name](m, world_mesh, parallel_dims, job_config)
-            m.to_empty(device="cuda")
-            m.init_weights()
-            m.train()
-    else:
-        # apply PT-D Tensor Parallel, activation checkpointing, torch.compile, Data Parallel
-        models_parallelize_fns[model_name](model, world_mesh, parallel_dims, job_config)
-
-        # move sharded model to CPU/GPU and initialize weights via DTensor
-        init_device = "cpu" if job_config.checkpoint.create_seed_checkpoint else "cuda"
-        model.to_empty(device=init_device)
-        # TODO: Caution! Weights or buffers that are not explicitly initialized wil become 0
-        # TODO: especially dangerous for non-persistent buffers that do not exist in weight ckpt to be loade
-        model.init_weights()
-
-        # check_list = [
-        #     'attention.W1', 'attention.b1',
-        #     'ttt_norm_weight', 'ttt_norm_bias',
-        #     'learnable_ttt_lr_weight', 'learnable_ttt_lr_bias',
-        #     'post_norm.weight', 'post_norm.bias',
-        #     'wq.weight',
-        #     'feed_forward.w1',
-        # ]
-        # for name, param in model.named_parameters():
-        #     for check_name in check_list:
-        #         if check_name in name:
-        #             print(f"Init value for {name} non-zero count: {torch.sum(param != 0.)}")
-        # pdb.set_trace()
-
-        # TODO: @xinhao doesn't consider tp for now
-        # init_ckpt_path = '/nlp/scr/yusun/data/xinhao/retrofit/torchtitan/weights/09-11-Tok-llama2-D-PILE-0.15B-T-2k-BS-16-M1-Tiehead-False-ilr-1-lr-3e-3-titan-init-weight/jax_init_weights.pth'
-        # init_ckpt = torch.load(init_ckpt_path, map_location="cpu")
-        # model.load_state_dict(init_ckpt)
-
-        model.train()
-        model_parts = [model]
+    # move sharded model to CPU/GPU and initialize weights via DTensor
+    init_device = "cpu" if job_config.checkpoint.create_seed_checkpoint else "cuda"
+    model.to_empty(device=init_device)
+    # @xinhao
+    # TODO: Caution! Weights or buffers that are not explicitly initialized wil become 0
+    # TODO: especially dangerous for non-persistent buffers that do not exist in weight ckpt to be loaded
+    model.init_weights()
+    model.train()
+    model_parts = [model]
 
     gpu_mem_stats = gpu_memory_monitor.get_peak_stats()
     logger.info(
@@ -276,6 +215,13 @@ def main(job_config: JobConfig):
         assert (
             world_size == 1
         ), "Must create seed-checkpoint using one gpu, to disable sharding"
+        if job_config.checkpoint.jax_seed_checkpoint:
+            # @xinhao: when creating jax_seed_checkpoint, `job_config.checkpoint.jax_seed_checkpoint` actually
+            # points to path of state_dict converted from jax weights.
+            # After `checkpoint.save`, the real jax_seed_checkpoint will be saved to `job_config.job.dump_folder`,
+            # which will be loaded in real training by specifying `job_config.checkpoint.jax_seed_checkpoint` to it.
+            state_dict_from_jax = torch.load(job_config.checkpoint.jax_seed_checkpoint, map_location="cpu")
+            model.load_state_dict(state_dict_from_jax)
         checkpoint.save(curr_step=0, force=True)
         logger.info("Created seed checkpoint")
         return
@@ -287,13 +233,6 @@ def main(job_config: JobConfig):
         checkpoint_loaded = checkpoint.load()
     # @xinhao: hotfix that solves the bug that the second resume still starts from the first resume step count
     checkpoint.states["train_state"] = train_state
-
-    if parallel_dims.pp_enabled and not checkpoint_loaded:
-        # TODO: fix this by allowing each rank to set their own seed
-        logger.warning(
-            "Pipeline Parallelism is being used without a seed checkpoint. "
-            "All the substages will be initialized with random weights with same RNG state which can affect convergence."
-        )
 
     metric_logger = build_metric_logger(job_config, parallel_dims)
 
@@ -331,15 +270,10 @@ def main(job_config: JobConfig):
 
     # train loop
     logger.info(
-        # @xinhao: original: `train_state.step + 1`, here modified to align with tqdm: how many steps that have been trained
         f"Training starts at step {train_state.step}, "
-        # f"with local batch size {job_config.training.batch_size}, "
-        # f"global batch size {job_config.training.batch_size * dp_degree}, "
-        
-        # @xinhao: use non ddp loader as ttt-lm-jax, where batch_size is global
+        # @xinhao: use non ddp loader as ttt-lm-jax, where `job_config.training.batch_size` is global
         f"with local batch size {job_config.training.batch_size //  dp_degree}, "
         f"global batch size {job_config.training.batch_size}, "
-        
         f"sequence length {job_config.training.seq_len}, "
         f"total steps {job_config.training.steps} "
         f"(warmup {job_config.training.warmup_steps})"
@@ -350,7 +284,6 @@ def main(job_config: JobConfig):
         job_config, global_step=train_state.step
     ) as memory_profiler:
 
-        # while train_state.step < job_config.training.steps:
         start_step = train_state.step
         for step in tqdm(
             range(start_step, job_config.training.steps),
@@ -374,12 +307,11 @@ def main(job_config: JobConfig):
                 batch = next(data_iterator)
 
             input_ids, labels, loss_masks = batch['input_tokens'], batch['target_tokens'], batch['loss_masks']
-            if not ddp_loader:
-                # @xinhao: rn always true to align with ttt-lm-jax
-                local_bs = input_ids.shape[0] // dp_degree
-                input_ids = input_ids[dp_rank * local_bs : (dp_rank + 1) * local_bs]
-                labels = labels[dp_rank * local_bs : (dp_rank + 1) * local_bs]
-                loss_masks = loss_masks[dp_rank * local_bs : (dp_rank + 1) * local_bs]
+            # @xinhao: rn use non-ddp loader to align with ttt-lm-jax
+            local_bs = input_ids.shape[0] // dp_degree
+            input_ids = input_ids[dp_rank * local_bs : (dp_rank + 1) * local_bs]
+            labels = labels[dp_rank * local_bs : (dp_rank + 1) * local_bs]
+            loss_masks = loss_masks[dp_rank * local_bs : (dp_rank + 1) * local_bs]
 
             ntokens_since_last_log += labels.numel()
 
@@ -390,62 +322,21 @@ def main(job_config: JobConfig):
             loss_masks = loss_masks.cuda()
             optimizers.zero_grad()
 
-            if parallel_dims.pp_enabled:
-                # Pipeline Parallel forward / backward inside step() call
-                is_last_stage = pp_mesh.get_local_rank() == pp_mesh.size() - 1
-
+            # Non-PP forward / backward
+            loss = 0.
+            for accum_step in range(job_config.training.grad_accum_steps):
+                micro_bs = local_bs // job_config.training.grad_accum_steps
+                input_ids_micro = input_ids[accum_step * micro_bs : (accum_step + 1) * micro_bs]
+                labels_micro = labels[accum_step * micro_bs : (accum_step + 1) * micro_bs]
+                loss_masks_micro = loss_masks[accum_step * micro_bs : (accum_step + 1) * micro_bs]
+                if parallel_dims.dp_enabled:
+                    model.set_requires_gradient_sync(accum_step == (job_config.training.grad_accum_steps - 1))
                 with train_context():
-                    if pp_mesh.get_local_rank() == 0:
-                        pp_schedule.step(input_ids)
-                    elif is_last_stage:
-                        losses = []
-                        pp_schedule.step(target=labels, losses=losses)
-                    else:
-                        pp_schedule.step()
-
-                # accumulate losses across pipeline microbatches
-                loss = (
-                    torch.mean(torch.stack(losses))
-                    if is_last_stage
-                    else torch.Tensor([-1.0])
-                )
-            else:
-                # Non-PP forward / backward
-                # with train_context():
-                #     pred = model(input_ids)
-                #     loss = loss_fn(pred, labels, loss_masks)
-                #     # pred.shape=(bs, seq_len, vocab_size)
-                #     # need to free to before bwd to avoid peaking memory
-                #     del pred
-                #     loss.backward()
-                loss = 0.
-                for accum_step in range(job_config.training.grad_accum_steps):
-                    micro_bs = local_bs // job_config.training.grad_accum_steps
-                    input_ids_micro = input_ids[accum_step * micro_bs : (accum_step + 1) * micro_bs]
-                    labels_micro = labels[accum_step * micro_bs : (accum_step + 1) * micro_bs]
-                    loss_masks_micro = loss_masks[accum_step * micro_bs : (accum_step + 1) * micro_bs]
-                    if parallel_dims.dp_enabled:
-                        model.set_requires_gradient_sync(accum_step == (job_config.training.grad_accum_steps - 1))
-                    with train_context():
-                        pred_micro = model(input_ids_micro)
-                        loss_micro = loss_fn(pred_micro, labels_micro, loss_masks_micro) / job_config.training.grad_accum_steps
-                        del pred_micro
-                        loss_micro.backward()
-                        loss += loss_micro
-
-            # check_list = [
-            #     # 'attention.W1', 'attention.b1',
-            #     # 'ttt_norm_weight', 'ttt_norm_bias',
-            #     'learnable_ttt_lr_weight', 'learnable_ttt_lr_bias',
-            #     'learnable_token_idx',
-            #     # 'post_norm.weight', 'post_norm.bias',
-            #     # 'wq.weight',
-            #     # 'feed_forward.w1',
-            # ]
-            # for name, param in model.named_parameters():
-            #     for check_name in check_list:
-            #         if check_name in name:
-            #             print(f"Gradient for {name} non-zero count: {torch.sum(param.grad != 0.)}")
+                    pred_micro = model(input_ids_micro)
+                    loss_micro = loss_fn(pred_micro, labels_micro, loss_masks_micro) / job_config.training.grad_accum_steps
+                    del pred_micro
+                    loss_micro.backward()
+                    loss += loss_micro
 
             # clip gradients
             for m in model_parts:
